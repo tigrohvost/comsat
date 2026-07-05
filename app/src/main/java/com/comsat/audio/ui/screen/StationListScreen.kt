@@ -25,15 +25,22 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.comsat.audio.data.model.SomaStation
+import com.comsat.audio.ui.components.ComsatSearchField
+import com.comsat.audio.ui.components.EmptyListMessage
 import com.comsat.audio.ui.components.glowEffect
 import com.comsat.audio.ui.theme.MagentaNeon
 import com.comsat.audio.viewmodel.MainViewModel
@@ -47,6 +54,15 @@ fun StationListScreen(
     val loading  by viewModel.stationsLoading.collectAsState()
     val error    by viewModel.stationsError.collectAsState()
     val selected by viewModel.selectedStation.collectAsState()
+
+    var query by rememberSaveable { mutableStateOf("") }
+
+    val filtered = stations.filter { s ->
+        query.isBlank() ||
+            s.title.contains(query, ignoreCase = true) ||
+            s.genre.contains(query, ignoreCase = true) ||
+            s.description.contains(query, ignoreCase = true)
+    }
 
     Column(
         modifier = Modifier
@@ -75,19 +91,40 @@ fun StationListScreen(
             )
         }
 
+        ComsatSearchField(
+            query = query,
+            onQueryChange = { query = it },
+            placeholder = "station / genre",
+            accentColor = MaterialTheme.colorScheme.secondary,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+        )
+
         if (loading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.secondary)
             }
         } else if (error != null) {
             Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-                androidx.compose.material3.Text(
-                    text = "ERR: $error",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "ERR: $error",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center
+                    )
+                    TextButton(onClick = { viewModel.loadStations() }) {
+                        Text(
+                            text = "RETRY",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                }
             }
+        } else if (filtered.isEmpty()) {
+            EmptyListMessage(if (query.isBlank()) "NO STATIONS" else "NO MATCHES")
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
@@ -95,7 +132,7 @@ fun StationListScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(stations, key = { it.id }) { station ->
+                items(filtered, key = { it.id }) { station ->
                     StationCard(
                         station = station,
                         isSelected = station.id == selected?.id,

@@ -175,9 +175,18 @@ class MainViewModel @Inject constructor(
                     _stations.value = it
                     applyRestoredStation()
                 }
-                .onFailure { _stationsError.value = it.message }
+                .onFailure { _stationsError.value = friendlyLoadError(it) }
             _stationsLoading.value = false
         }
+    }
+
+    // Raw exception messages are user-hostile; collapse into short HUD-style statuses
+    private fun friendlyLoadError(t: Throwable): String = when (t) {
+        is java.net.UnknownHostException,
+        is java.net.ConnectException,
+        is java.net.SocketTimeoutException -> "NO SIGNAL · CHECK CONNECTION"
+        is java.io.IOException -> "NETWORK FAULT"
+        else -> "STATION LIST UNAVAILABLE"
     }
 
     fun selectAirport(airport: Airport) {

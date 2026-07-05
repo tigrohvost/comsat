@@ -16,19 +16,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SearchBar
-import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -41,10 +36,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.comsat.audio.data.model.Airport
+import com.comsat.audio.ui.components.ComsatSearchField
+import com.comsat.audio.ui.components.EmptyListMessage
 import com.comsat.audio.ui.components.OnlineDot
 import com.comsat.audio.viewmodel.MainViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AirportListScreen(
     navController: NavController,
@@ -100,33 +96,21 @@ fun AirportListScreen(
         }
 
         // Search
-        SearchBar(
-            inputField = {
-                SearchBarDefaults.InputField(
-                    query = query,
-                    onQueryChange = { query = it },
-                    onSearch = {},
-                    expanded = false,
-                    onExpandedChange = {},
-                    placeholder = { Text("ICAO / city / country", style = MaterialTheme.typography.bodyMedium) },
-                    leadingIcon = { Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.primary) }
-                )
-            },
-            expanded = false,
-            onExpandedChange = {},
+        ComsatSearchField(
+            query = query,
+            onQueryChange = { query = it },
+            placeholder = "ICAO / city / country",
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            shape = RoundedCornerShape(4.dp),
-            colors = SearchBarDefaults.colors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
-            )
-        ) {}
+                .padding(horizontal = 16.dp)
+        )
 
         if (loading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
+        } else if (filtered.isEmpty()) {
+            EmptyListMessage(if (query.isBlank()) "NO AIRPORTS" else "NO MATCHES")
         } else {
             LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
                 grouped.forEach { (region, regionAirports) ->

@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -35,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.comsat.audio.data.model.StreamState
@@ -214,7 +217,10 @@ private fun StreamCard(
                 Text(
                     text = "${(volume * 100).toInt()}%",
                     style = MaterialTheme.typography.labelSmall,
-                    color = accentColor
+                    color = accentColor,
+                    textAlign = TextAlign.End,
+                    // Reserve room for "100%" so the slider doesn't resize mid-drag
+                    modifier = Modifier.widthIn(min = 40.dp)
                 )
             }
 
@@ -227,6 +233,7 @@ private fun StreamCard(
             )
             FilledTonalIconButton(
                 onClick = onToggle,
+                modifier = Modifier.size(56.dp),
                 colors = IconButtonDefaults.filledTonalIconButtonColors(
                     containerColor = accentColor.copy(alpha = 0.12f),
                     contentColor = playTint
@@ -234,7 +241,8 @@ private fun StreamCard(
             ) {
                 Icon(
                     imageVector = if (state.isActive) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = null
+                    contentDescription = if (state.isActive) "Pause $label" else "Play $label",
+                    modifier = Modifier.size(32.dp)
                 )
             }
 

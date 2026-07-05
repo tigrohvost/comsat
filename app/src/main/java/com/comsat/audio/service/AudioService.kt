@@ -380,13 +380,27 @@ class AudioService : Service() {
                 val stateFlow = if (isAtc) _atcState else _somaState
                 val url = if (isAtc) atcUrl else somaUrl
                 val attempt = if (isAtc) ++atcRetryAttempt else ++somaRetryAttempt
-                stateFlow.value = StreamState(StreamStatus.RECONNECTING, error.message)
+                stateFlow.value = StreamState(StreamStatus.RECONNECTING, friendlyErrorMessage(error))
                 // Back-off reconnect: 5 s, then 10 s, then 30 s
                 scheduleReconnect(player, url, stateFlow, attempt, isAtc)
             }
         })
         return player
     }
+
+    // Raw PlaybackException messages leak stack-level details ("Unable to resolve
+    // host…"); collapse them into short statuses matching the app's HUD style.
+    private fun friendlyErrorMessage(error: PlaybackException): String =
+        when (error.errorCode) {
+            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
+                "NO SIGNAL · CHECK CONNECTION"
+            PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
+            PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
+            PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE ->
+                "STREAM OFFLINE"
+            else -> "PLAYBACK FAULT"
+        }
 
     private fun scheduleReconnect(
         player: ExoPlayer,
