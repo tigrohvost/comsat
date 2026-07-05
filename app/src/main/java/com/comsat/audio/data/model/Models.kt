@@ -11,6 +11,8 @@ data class Airport(
     val country: String,
     val region: String,
     val feedId: String,
+    val lat: Float = 0f,
+    val lon: Float = 0f,
     val isOnline: Boolean = false
 ) {
     // d.liveatc.net is a Cloudflare-fronted dispatcher that 302-redirects to the active

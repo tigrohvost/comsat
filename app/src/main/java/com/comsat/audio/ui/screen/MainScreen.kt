@@ -48,11 +48,13 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.comsat.audio.data.model.StreamState
 import com.comsat.audio.data.model.StreamStatus
+import com.comsat.audio.data.repository.AIRPORT_CATALOG
 import com.comsat.audio.ui.components.NeonCard
 import com.comsat.audio.ui.components.NeonSlider
 import com.comsat.audio.ui.components.SectionHeader
 import com.comsat.audio.ui.components.StatusDot
 import com.comsat.audio.ui.components.StatusLabel
+import com.comsat.audio.ui.components.WorldMapBackground
 import com.comsat.audio.ui.navigation.Screen
 import com.comsat.audio.ui.theme.CyanNeon
 import com.comsat.audio.ui.theme.LocalSetTheme
@@ -76,56 +78,66 @@ fun MainScreen(
     val themeMode = LocalThemeMode.current
     val setTheme  = LocalSetTheme.current
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
-        // ── App bar ──────────────────────────────────────────────────────────
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        WorldMapBackground(
+            airports = AIRPORT_CATALOG,
+            selectedIcao = airport?.icao,
+            modifier = Modifier.fillMaxSize()
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            Text(
-                text = "COMSAT",
-                style = MaterialTheme.typography.displayLarge,
-                color = MaterialTheme.colorScheme.primary
+            // ── App bar ──────────────────────────────────────────────────────────
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "COMSAT",
+                    style = MaterialTheme.typography.displayLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                ThemeMenuButton(themeMode = themeMode, onSetTheme = setTheme)
+            }
+
+            // ── ATC stream card ──────────────────────────────────────────────────
+            StreamCard(
+                label = "ATC FEED",
+                sourceName = airport?.let { "${it.icao} · ${it.name}" } ?: "NO AIRPORT SELECTED",
+                subLabel = airport?.let { "${it.city}, ${it.country}" },
+                state = atcState,
+                volume = atcVolume,
+                onVolumeChange = viewModel::setAtcVolume,
+                onToggle = viewModel::toggleAtcPlayback,
+                onSelectSource = { navController.navigate(Screen.Airports.route) },
+                accentColor = CyanNeon,
+                icon = { Icon(Icons.Default.Radar, contentDescription = null) }
             )
-            ThemeMenuButton(themeMode = themeMode, onSetTheme = setTheme)
+
+            // ── Soma.fm stream card ──────────────────────────────────────────────
+            StreamCard(
+                label = "AMBIENT",
+                sourceName = station?.title ?: "NO STATION SELECTED",
+                subLabel = nowPlaying ?: station?.genre?.lowercase(),
+                state = somaState,
+                volume = somaVolume,
+                onVolumeChange = viewModel::setSomaVolume,
+                onToggle = viewModel::toggleSomaPlayback,
+                onSelectSource = { navController.navigate(Screen.Stations.route) },
+                accentColor = MagentaNeon,
+                icon = { Icon(Icons.Default.Tune, contentDescription = null) }
+            )
         }
-
-        // ── ATC stream card ──────────────────────────────────────────────────
-        StreamCard(
-            label = "ATC FEED",
-            sourceName = airport?.let { "${it.icao} · ${it.name}" } ?: "NO AIRPORT SELECTED",
-            subLabel = airport?.let { "${it.city}, ${it.country}" },
-            state = atcState,
-            volume = atcVolume,
-            onVolumeChange = viewModel::setAtcVolume,
-            onToggle = viewModel::toggleAtcPlayback,
-            onSelectSource = { navController.navigate(Screen.Airports.route) },
-            accentColor = CyanNeon,
-            icon = { Icon(Icons.Default.Radar, contentDescription = null) }
-        )
-
-        // ── Soma.fm stream card ──────────────────────────────────────────────
-        StreamCard(
-            label = "AMBIENT",
-            sourceName = station?.title ?: "NO STATION SELECTED",
-            subLabel = nowPlaying ?: station?.genre?.lowercase(),
-            state = somaState,
-            volume = somaVolume,
-            onVolumeChange = viewModel::setSomaVolume,
-            onToggle = viewModel::toggleSomaPlayback,
-            onSelectSource = { navController.navigate(Screen.Stations.route) },
-            accentColor = MagentaNeon,
-            icon = { Icon(Icons.Default.Tune, contentDescription = null) }
-        )
     }
 }
 
