@@ -62,18 +62,18 @@ private val NordColors = darkColorScheme(
     scrim            = Scrim
 )
 
-val LocalThemeMode   = staticCompositionLocalOf { ThemeMode.DARK }
-val LocalToggleTheme = staticCompositionLocalOf<() -> Unit> { {} }
+val LocalThemeMode = staticCompositionLocalOf { ThemeMode.DARK }
+val LocalSetTheme  = staticCompositionLocalOf<(ThemeMode) -> Unit> { {} }
 
 @Composable
 fun ComsatTheme(
     mode: ThemeMode = ThemeMode.DARK,
-    onToggleTheme: () -> Unit = {},
+    onSetTheme: (ThemeMode) -> Unit = {},
     content: @Composable () -> Unit
 ) {
     CompositionLocalProvider(
-        LocalThemeMode   provides mode,
-        LocalToggleTheme provides onToggleTheme
+        LocalThemeMode provides mode,
+        LocalSetTheme  provides onSetTheme
     ) {
         MaterialTheme(
             colorScheme = when (mode) {

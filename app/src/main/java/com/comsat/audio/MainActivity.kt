@@ -40,7 +40,7 @@ class MainActivity : ComponentActivity() {
                 .collectAsState(initial = ThemeMode.DARK)
             ComsatTheme(
                 mode = themeMode,
-                onToggleTheme = { lifecycleScope.launch { settingsRepo.cycleTheme() } }
+                onSetTheme = { mode -> lifecycleScope.launch { settingsRepo.setTheme(mode) } }
             ) {
                 val navController = rememberNavController()
                 ComsatNavGraph(navController = navController)

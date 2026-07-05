@@ -89,6 +89,7 @@ dependencies {
     implementation(libs.coroutines.android)
     implementation(libs.navigation.compose)
     implementation(libs.datastore.preferences)
+    implementation(libs.coil.compose)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

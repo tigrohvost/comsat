@@ -24,6 +24,9 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,6 +37,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -49,8 +55,8 @@ import com.comsat.audio.ui.components.StatusDot
 import com.comsat.audio.ui.components.StatusLabel
 import com.comsat.audio.ui.navigation.Screen
 import com.comsat.audio.ui.theme.CyanNeon
+import com.comsat.audio.ui.theme.LocalSetTheme
 import com.comsat.audio.ui.theme.LocalThemeMode
-import com.comsat.audio.ui.theme.LocalToggleTheme
 import com.comsat.audio.ui.theme.ThemeMode
 import com.comsat.audio.ui.theme.MagentaNeon
 import com.comsat.audio.viewmodel.MainViewModel
@@ -67,8 +73,8 @@ fun MainScreen(
     val airport    by viewModel.selectedAirport.collectAsState()
     val station    by viewModel.selectedStation.collectAsState()
     val nowPlaying by viewModel.somaNowPlaying.collectAsState()
-    val themeMode   = LocalThemeMode.current
-    val toggleTheme = LocalToggleTheme.current
+    val themeMode = LocalThemeMode.current
+    val setTheme  = LocalSetTheme.current
 
     Column(
         modifier = Modifier
@@ -90,17 +96,7 @@ fun MainScreen(
                 style = MaterialTheme.typography.displayLarge,
                 color = MaterialTheme.colorScheme.primary
             )
-            IconButton(onClick = toggleTheme) {
-                Icon(
-                    imageVector = when (themeMode) {
-                        ThemeMode.DARK   -> Icons.Default.LightMode   // next: light
-                        ThemeMode.LIGHT  -> Icons.Default.AcUnit      // next: nordic
-                        ThemeMode.NORDIC -> Icons.Default.DarkMode    // next: dark
-                    },
-                    contentDescription = "Toggle theme",
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            }
+            ThemeMenuButton(themeMode = themeMode, onSetTheme = setTheme)
         }
 
         // ── ATC stream card ──────────────────────────────────────────────────
@@ -130,6 +126,56 @@ fun MainScreen(
             accentColor = MagentaNeon,
             icon = { Icon(Icons.Default.Tune, contentDescription = null) }
         )
+    }
+}
+
+@Composable
+private fun ThemeMenuButton(
+    themeMode: ThemeMode,
+    onSetTheme: (ThemeMode) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    // The button shows the CURRENT theme; the menu lists all three explicitly
+    val currentIcon = when (themeMode) {
+        ThemeMode.DARK   -> Icons.Default.DarkMode
+        ThemeMode.LIGHT  -> Icons.Default.LightMode
+        ThemeMode.NORDIC -> Icons.Default.AcUnit
+    }
+
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            Icon(
+                imageVector = currentIcon,
+                contentDescription = "Select theme",
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            ThemeMode.entries.forEach { mode ->
+                val (icon, title) = when (mode) {
+                    ThemeMode.DARK   -> Icons.Default.DarkMode to "DARK"
+                    ThemeMode.LIGHT  -> Icons.Default.LightMode to "LIGHT"
+                    ThemeMode.NORDIC -> Icons.Default.AcUnit to "NORDIC"
+                }
+                val selectedTint = if (mode == themeMode) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = selectedTint
+                        )
+                    },
+                    leadingIcon = { Icon(icon, contentDescription = null, tint = selectedTint) },
+                    onClick = {
+                        onSetTheme(mode)
+                        expanded = false
+                    }
+                )
+            }
+        }
     }
 }
 

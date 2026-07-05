@@ -60,10 +60,7 @@ class SettingsRepository @Inject constructor(
         context.dataStore.edit { it[Keys.STATION_ID] = id }
     }
 
-    suspend fun cycleTheme() {
-        context.dataStore.edit {
-            val current = it[Keys.THEME_MODE] ?: 0
-            it[Keys.THEME_MODE] = (current + 1) % ThemeMode.entries.size
-        }
+    suspend fun setTheme(mode: ThemeMode) {
+        context.dataStore.edit { it[Keys.THEME_MODE] = mode.ordinal }
     }
 }
