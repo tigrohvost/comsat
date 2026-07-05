@@ -1,0 +1,2 @@
+-keep class com.comsat.audio.data.model.** { *; }
+-keepclassmembers class com.comsat.audio.data.model.** { *; }
