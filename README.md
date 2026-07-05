@@ -6,6 +6,9 @@ from [LiveATC](https://www.liveatc.net/) mixed with ambient music from
 frequency, put Drone Zone underneath it, and get that "lofi ATC" atmosphere
 with full control over the mix.
 
+Inspired by [listen to the.cloud](https://listentothe.cloud/), which pioneered
+the ATC-plus-ambient mix in the browser.
+
 ![Main screen](comsat_mockup.png)
 
 ## Features
