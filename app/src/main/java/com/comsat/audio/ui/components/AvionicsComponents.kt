@@ -251,26 +251,39 @@ fun PlacardButton(
     )
 }
 
-// ─── Decorative footer placard ────────────────────────────────────────────────
+// ─── Footer placard: live panel telemetry ─────────────────────────────────────
 
 @Composable
-fun FooterPlacard(modifier: Modifier = Modifier) {
-    val color = MaterialTheme.colorScheme.outline
+fun FooterPlacard(
+    netOnline: Boolean,
+    activeStreams: Int,
+    version: String,
+    modifier: Modifier = Modifier
+) {
+    val dim = MaterialTheme.colorScheme.outline
     Column(modifier = modifier.fillMaxWidth()) {
-        HorizontalDivider(color = color)
+        HorizontalDivider(color = dim)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 4.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            for (label in listOf("PWR ● NORM", "SQL AUTO", "XPDR 7000")) {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = color
-                )
-            }
+            Text(
+                text = if (netOnline) "NET ● ONLINE" else "NET ○ OFFLINE",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (netOnline) dim else NordYellow
+            )
+            Text(
+                text = "COMM $activeStreams/2",
+                style = MaterialTheme.typography.labelSmall,
+                color = dim
+            )
+            Text(
+                text = "VER $version",
+                style = MaterialTheme.typography.labelSmall,
+                color = dim
+            )
         }
     }
 }

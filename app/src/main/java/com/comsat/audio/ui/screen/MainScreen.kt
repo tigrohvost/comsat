@@ -14,8 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.DarkMode
@@ -40,6 +38,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.comsat.audio.BuildConfig
 import com.comsat.audio.data.model.StreamState
 import com.comsat.audio.data.repository.AIRPORT_CATALOG
 import com.comsat.audio.ui.components.AtisReadout
@@ -76,6 +75,7 @@ fun MainScreen(
     val atcSpectrum  by viewModel.atcSpectrum.collectAsState()
     val somaSpectrum by viewModel.somaSpectrum.collectAsState()
     val atisData     by viewModel.atisData.collectAsState()
+    val netOnline    by viewModel.networkOnline.collectAsState()
 
     Box(
         modifier = Modifier
@@ -91,7 +91,6 @@ fun MainScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing)
-                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -140,7 +139,12 @@ fun MainScreen(
                 )
             }
 
-            FooterPlacard()
+            Spacer(modifier = Modifier.weight(1f))
+            FooterPlacard(
+                netOnline = netOnline,
+                activeStreams = listOf(atcState.isActive, somaState.isActive).count { it },
+                version = BuildConfig.VERSION_NAME
+            )
         }
     }
 }
