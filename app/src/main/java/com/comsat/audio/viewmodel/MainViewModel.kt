@@ -5,6 +5,10 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.IBinder
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -106,6 +110,22 @@ class MainViewModel @Inject constructor(
     private val _atisData = MutableStateFlow<AtisData?>(null)
     val atisData: StateFlow<AtisData?> = _atisData
 
+    // ─── Network status (footer telemetry) ────────────────────────────────────
+
+    private val _networkOnline = MutableStateFlow(true)
+    val networkOnline: StateFlow<Boolean> = _networkOnline
+
+    private val connectivityManager: ConnectivityManager =
+        application.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) { _networkOnline.value = true }
+        override fun onLost(network: Network) {
+            // onLost fires per-network; only report offline when nothing remains
+            _networkOnline.value = connectivityManager.activeNetwork != null
+        }
+    }
+
     // ─── Station state ────────────────────────────────────────────────────────
 
     private val _stations = MutableStateFlow<List<SomaStation>>(emptyList())
@@ -139,6 +159,7 @@ class MainViewModel @Inject constructor(
         loadAirports()
         loadStations()
         observeAtis()
+        registerNetworkCallback()
     }
 
     private fun restoreSettings() {
@@ -214,6 +235,14 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    private fun registerNetworkCallback() {
+        _networkOnline.value = connectivityManager.activeNetwork != null
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+        connectivityManager.registerNetworkCallback(request, networkCallback)
+    }
+
     // Raw exception messages are user-hostile; collapse into short HUD-style statuses
     private fun friendlyLoadError(t: Throwable): String = when (t) {
         is java.net.UnknownHostException,
@@ -278,6 +307,7 @@ class MainViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        connectivityManager.unregisterNetworkCallback(networkCallback)
         if (serviceBound) {
             getApplication<Application>().unbindService(serviceConnection)
             serviceBound = false
