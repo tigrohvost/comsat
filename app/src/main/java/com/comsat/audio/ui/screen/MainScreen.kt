@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.comsat.audio.data.model.StreamState
 import com.comsat.audio.data.repository.AIRPORT_CATALOG
+import com.comsat.audio.ui.components.AtisReadout
 import com.comsat.audio.ui.components.AvionicsModule
 import com.comsat.audio.ui.components.FooterPlacard
 import com.comsat.audio.ui.components.PlacardButton
@@ -74,6 +75,7 @@ fun MainScreen(
     val nowPlaying   by viewModel.somaNowPlaying.collectAsState()
     val atcSpectrum  by viewModel.atcSpectrum.collectAsState()
     val somaSpectrum by viewModel.somaSpectrum.collectAsState()
+    val atisData     by viewModel.atisData.collectAsState()
 
     Box(
         modifier = Modifier
@@ -110,7 +112,13 @@ fun MainScreen(
                     onVolumeChange = viewModel::setAtcVolume,
                     onToggle = viewModel::toggleAtcPlayback,
                     onSelectSource = { navController.navigate(Screen.Airports.route) },
-                    accent = MaterialTheme.colorScheme.primary
+                    accent = MaterialTheme.colorScheme.primary,
+                    cornerContent = {
+                        AtisReadout(
+                            data = atisData,
+                            accent = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 )
             }
 
@@ -251,7 +259,8 @@ private fun StreamModuleBody(
     onVolumeChange: (Float) -> Unit,
     onToggle: () -> Unit,
     onSelectSource: () -> Unit,
-    accent: Color
+    accent: Color,
+    cornerContent: (@Composable () -> Unit)? = null
 ) {
     // Station name + change button
     Row(
@@ -309,12 +318,19 @@ private fun StreamModuleBody(
         )
     }
 
-    SquareToggleButton(
-        active = state.isActive,
-        accent = accent,
-        onClick = onToggle,
-        description = if (state.isActive) "Pause" else "Play"
-    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Bottom
+    ) {
+        SquareToggleButton(
+            active = state.isActive,
+            accent = accent,
+            onClick = onToggle,
+            description = if (state.isActive) "Pause" else "Play"
+        )
+        Spacer(modifier = Modifier.weight(1f))
+        cornerContent?.invoke()
+    }
 
     if (state.error != null) {
         Text(

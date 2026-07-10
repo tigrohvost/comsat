@@ -34,7 +34,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import com.comsat.audio.data.model.AtisData
 import com.comsat.audio.data.model.StreamStatus
 import com.comsat.audio.ui.theme.NordYellow
 
@@ -269,4 +273,46 @@ fun FooterPlacard(modifier: Modifier = Modifier) {
             }
         }
     }
+}
+
+// ─── ATIS readout: METAR-derived weather beside the transport button ─────────
+
+@Composable
+fun AtisReadout(
+    data: AtisData?,
+    accent: Color,
+    modifier: Modifier = Modifier
+) {
+    val dim = MaterialTheme.colorScheme.onSurfaceVariant
+    Column(modifier = modifier, horizontalAlignment = Alignment.End) {
+        if (data == null) {
+            Text(
+                text = "ATIS ---",
+                style = MaterialTheme.typography.labelSmall,
+                color = dim
+            )
+        } else {
+            AtisLine(accent, "TEMP" to data.tempText, "DEW" to data.dewText)
+            AtisLine(accent, "RH" to data.rhText, "" to data.qnhText)
+            AtisLine(accent, "WND" to data.windText)
+        }
+    }
+}
+
+@Composable
+private fun AtisLine(accent: Color, vararg parts: Pair<String, String>) {
+    val dim = MaterialTheme.colorScheme.onSurfaceVariant
+    Text(
+        text = buildAnnotatedString {
+            parts.forEachIndexed { i, (label, value) ->
+                if (i > 0) append("  ")
+                if (label.isNotEmpty()) {
+                    withStyle(SpanStyle(color = dim)) { append(label) }
+                    append(" ")
+                }
+                withStyle(SpanStyle(color = accent)) { append(value) }
+            }
+        },
+        style = MaterialTheme.typography.labelSmall
+    )
 }
