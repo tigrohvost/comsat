@@ -20,7 +20,7 @@ data class AppSettings(
     val somaVolume: Float = 0.5f,
     val airportIcao: String? = null,
     val stationId: String? = null,
-    val themeMode: ThemeMode = ThemeMode.DARK
+    val themeMode: ThemeMode = ThemeMode.NORDIC
 )
 
 @Singleton
@@ -41,7 +41,9 @@ class SettingsRepository @Inject constructor(
             somaVolume = prefs[Keys.SOMA_VOLUME] ?: 0.5f,
             airportIcao = prefs[Keys.AIRPORT_ICAO],
             stationId = prefs[Keys.STATION_ID],
-            themeMode = ThemeMode.entries.getOrElse(prefs[Keys.THEME_MODE] ?: 0) { ThemeMode.DARK }
+            themeMode = prefs[Keys.THEME_MODE]
+                ?.let { ThemeMode.entries.getOrNull(it) }
+                ?: ThemeMode.NORDIC
         )
     }
 

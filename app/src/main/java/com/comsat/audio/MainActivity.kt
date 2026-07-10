@@ -37,7 +37,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val themeMode by settingsRepo.settings
                 .map { it.themeMode }
-                .collectAsState(initial = ThemeMode.DARK)
+                .collectAsState(initial = ThemeMode.NORDIC)
             ComsatTheme(
                 mode = themeMode,
                 onSetTheme = { mode -> lifecycleScope.launch { settingsRepo.setTheme(mode) } }

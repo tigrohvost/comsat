@@ -52,6 +52,13 @@ class MainViewModel @Inject constructor(
     private val _somaNowPlaying = MutableStateFlow<String?>(null)
     val somaNowPlaying: StateFlow<String?> = _somaNowPlaying
 
+    // Live FFT bands per stream, forwarded from the service
+    private val _atcSpectrum = MutableStateFlow(FloatArray(0))
+    val atcSpectrum: StateFlow<FloatArray> = _atcSpectrum
+
+    private val _somaSpectrum = MutableStateFlow(FloatArray(0))
+    val somaSpectrum: StateFlow<FloatArray> = _somaSpectrum
+
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
             val svc = (binder as AudioService.AudioBinder).getService()
@@ -62,6 +69,8 @@ class MainViewModel @Inject constructor(
             collectJobs += viewModelScope.launch { svc.atcState.collect { _atcState.value = it } }
             collectJobs += viewModelScope.launch { svc.somaState.collect { _somaState.value = it } }
             collectJobs += viewModelScope.launch { svc.somaNowPlaying.collect { _somaNowPlaying.value = it } }
+            collectJobs += viewModelScope.launch { svc.atcSpectrum.collect { _atcSpectrum.value = it } }
+            collectJobs += viewModelScope.launch { svc.somaSpectrum.collect { _somaSpectrum.value = it } }
 
             svc.setAtcVolume(_atcVolume.value)
             svc.setSomaVolume(_somaVolume.value)

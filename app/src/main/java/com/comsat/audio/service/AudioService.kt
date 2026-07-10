@@ -28,7 +28,11 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.SimpleBasePlayer
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.audio.TeeAudioProcessor
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaStyleNotificationHelper
@@ -69,6 +73,12 @@ class AudioService : Service() {
     // ICY metadata: current track title on the Soma stream
     private val _somaNowPlaying = MutableStateFlow<String?>(null)
     val somaNowPlaying: StateFlow<String?> = _somaNowPlaying
+
+    // Live FFT bands per stream (see SpectrumProcessor), tapped pre-fader
+    private val atcSpectrumProcessor = SpectrumProcessor()
+    private val somaSpectrumProcessor = SpectrumProcessor()
+    val atcSpectrum: StateFlow<FloatArray> get() = atcSpectrumProcessor.bands
+    val somaSpectrum: StateFlow<FloatArray> get() = somaSpectrumProcessor.bands
 
     private var atcUrl: String? = null
     private var somaUrl: String? = null
@@ -225,6 +235,7 @@ class AudioService : Service() {
         atcRetryAttempt = 0
         handler.removeCallbacksAndMessages(atcReconnectToken)
         atcPlayer.stop()
+        atcSpectrumProcessor.reset()
         _atcState.value = StreamState(StreamStatus.IDLE)
         maybeStopForeground()
         updateNotification()
@@ -251,6 +262,7 @@ class AudioService : Service() {
         somaRetryAttempt = 0
         handler.removeCallbacksAndMessages(somaReconnectToken)
         somaPlayer.stop()
+        somaSpectrumProcessor.reset()
         _somaNowPlaying.value = null
         _somaState.value = StreamState(StreamStatus.IDLE)
         maybeStopForeground()
@@ -331,7 +343,21 @@ class AudioService : Service() {
         // DefaultHttpDataSource does not. d.liveatc.net dispatches over HTTP then
         // 302-redirects to an HTTPS Icecast server, so this is required.
         val dataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
-        val player = ExoPlayer.Builder(this)
+        // TeeAudioProcessor mirrors the decoded PCM into the spectrum analyzer
+        // without touching the audio path (and without RECORD_AUDIO).
+        val spectrumProcessor = if (isAtc) atcSpectrumProcessor else somaSpectrumProcessor
+        val renderersFactory = object : DefaultRenderersFactory(this) {
+            override fun buildAudioSink(
+                context: Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean
+            ): AudioSink = DefaultAudioSink.Builder(context)
+                .setEnableFloatOutput(enableFloatOutput)
+                .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                .setAudioProcessors(arrayOf(TeeAudioProcessor(spectrumProcessor)))
+                .build()
+        }
+        val player = ExoPlayer.Builder(this, renderersFactory)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             // handleAudioFocus=false: two players would steal focus from each other.
             // Focus is managed once at the service level instead.

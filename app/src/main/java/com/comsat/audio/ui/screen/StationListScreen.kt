@@ -44,8 +44,6 @@ import coil.compose.AsyncImage
 import com.comsat.audio.data.model.SomaStation
 import com.comsat.audio.ui.components.ComsatSearchField
 import com.comsat.audio.ui.components.EmptyListMessage
-import com.comsat.audio.ui.components.glowEffect
-import com.comsat.audio.ui.theme.MagentaNeon
 import com.comsat.audio.viewmodel.MainViewModel
 
 @Composable
@@ -157,9 +155,7 @@ private fun StationCard(station: SomaStation, isSelected: Boolean, onClick: () -
 
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(4.dp))
-            .border(1.dp, accentColor.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
-            .let { if (isSelected) it.glowEffect(MagentaNeon, 8.dp) else it }
+            .border(1.dp, accentColor.copy(alpha = 0.7f))
             .background(
                 if (isSelected) MaterialTheme.colorScheme.secondary.copy(alpha = 0.08f)
                 else MaterialTheme.colorScheme.surface

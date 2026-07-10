@@ -43,3 +43,4 @@ val NordPrimary   = Color(0xFF88C0D0)   // nord8  — Frost light blue (primary 
 val NordSecondary = Color(0xFFB48EAD)   // nord15 — Aurora purple (secondary accent)
 val NordTertiary  = Color(0xFFA3BE8C)   // nord14 — Aurora green (status/tertiary)
 val NordError     = Color(0xFFBF616A)   // nord11 — Aurora red
+val NordYellow    = Color(0xFFEBCB8B)   // nord13 — Aurora yellow (warning/caution)
