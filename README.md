@@ -15,6 +15,9 @@ the ATC-plus-ambient mix in the browser.
 
 - **Two independent streams** — an ATC feed and a SomaFM station play
   simultaneously through separate ExoPlayer instances with per-stream volume
+- **Real spectrum analyzers** — each stream taps its decoded PCM via a
+  `TeeAudioProcessor` (no `RECORD_AUDIO`), runs an FFT and renders a
+  Winamp-style 24-band spectrum with falling peak caps, per channel
 - **Curated airport catalog** with region grouping, search (ICAO / city /
   country) and live online/offline status for each feed
 - **Full SomaFM directory** with artwork, genres, listener counts and search
@@ -22,7 +25,11 @@ the ATC-plus-ambient mix in the browser.
   headset controls drive both streams through a single MediaSession
 - **Resilient streaming** — automatic reconnect with backoff, audio-focus
   handling (ducking, transient loss), pause on headphone unplug
-- **Three themes** — cyberpunk dark, high-contrast light, Nord
+- **Avionics instrument-panel UI** — cockpit modules with status LEDs and
+  placards, tick faders with digital readouts, a live UTC clock, and a
+  drifting vector world chart (Natural Earth coastlines) with a 10° graticule
+  and a crosshair on the tuned airport
+- **Three themes** — Nord (default), cyberpunk dark, high-contrast light
 - **Persistent settings** — volumes, selected sources and theme survive
   restarts (DataStore)
 
@@ -39,8 +46,8 @@ OkHttp · Coil · DataStore · single-activity Navigation Compose.
 app/src/main/java/com/comsat/audio/
 ├── data/          # models, SomaFM API, LiveATC + settings repositories
 ├── di/            # Hilt modules
-├── service/       # AudioService: two ExoPlayers behind one MediaSession
-├── ui/            # Compose screens, cyberpunk components, themes
+├── service/       # AudioService: two ExoPlayers behind one MediaSession + FFT
+├── ui/            # Compose screens, avionics components, themes
 └── viewmodel/     # MainViewModel: service binding + UI state
 ```
 
