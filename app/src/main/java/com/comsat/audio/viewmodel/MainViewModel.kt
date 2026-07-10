@@ -9,10 +9,12 @@ import android.os.IBinder
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.comsat.audio.data.model.Airport
+import com.comsat.audio.data.model.AtisData
 import com.comsat.audio.data.model.SomaStation
 import com.comsat.audio.data.model.StreamState
 import com.comsat.audio.data.repository.AIRPORT_CATALOG
 import com.comsat.audio.data.repository.LiveAtcRepository
+import com.comsat.audio.data.repository.MetarRepository
 import com.comsat.audio.data.repository.SettingsRepository
 import com.comsat.audio.data.repository.SomaFmRepository
 import com.comsat.audio.service.AudioService
@@ -21,6 +23,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -30,7 +33,8 @@ class MainViewModel @Inject constructor(
     application: Application,
     private val liveAtcRepo: LiveAtcRepository,
     private val somaRepo: SomaFmRepository,
-    private val settingsRepo: SettingsRepository
+    private val settingsRepo: SettingsRepository,
+    private val metarRepo: MetarRepository
 ) : AndroidViewModel(application) {
 
     private var audioService: AudioService? = null
@@ -97,6 +101,11 @@ class MainViewModel @Inject constructor(
     private val _selectedAirport = MutableStateFlow<Airport?>(null)
     val selectedAirport: StateFlow<Airport?> = _selectedAirport
 
+    // ─── ATIS / METAR state ───────────────────────────────────────────────────
+
+    private val _atisData = MutableStateFlow<AtisData?>(null)
+    val atisData: StateFlow<AtisData?> = _atisData
+
     // ─── Station state ────────────────────────────────────────────────────────
 
     private val _stations = MutableStateFlow<List<SomaStation>>(emptyList())
@@ -129,6 +138,7 @@ class MainViewModel @Inject constructor(
         restoreSettings()
         loadAirports()
         loadStations()
+        observeAtis()
     }
 
     private fun restoreSettings() {
@@ -186,6 +196,21 @@ class MainViewModel @Inject constructor(
                 }
                 .onFailure { _stationsError.value = friendlyLoadError(it) }
             _stationsLoading.value = false
+        }
+    }
+
+    // METAR updates roughly twice an hour; refetch on airport change, then poll.
+    // Failed fetches keep the last value — collectLatest resets it per airport.
+    private fun observeAtis() {
+        viewModelScope.launch {
+            _selectedAirport.collectLatest { airport ->
+                _atisData.value = null
+                if (airport == null) return@collectLatest
+                while (true) {
+                    metarRepo.fetchMetar(airport.icao)?.let { _atisData.value = it }
+                    delay(10 * 60 * 1000L)
+                }
+            }
         }
     }
 
