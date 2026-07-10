@@ -1,6 +1,8 @@
 package com.comsat.audio.data.model
 
 import com.google.gson.annotations.SerializedName
+import java.util.Locale
+import kotlin.math.exp
 import kotlin.math.roundToInt
 
 // ─── Airport / LiveATC ────────────────────────────────────────────────────────
@@ -84,7 +86,7 @@ data class StreamState(
 // Magnus formula; METAR reports dewpoint but not humidity directly
 fun relativeHumidity(tempC: Double, dewpointC: Double): Double {
     fun gamma(t: Double) = 17.625 * t / (243.04 + t)
-    return 100.0 * kotlin.math.exp(gamma(dewpointC) - gamma(tempC))
+    return 100.0 * exp(gamma(dewpointC) - gamma(tempC))
 }
 
 data class AtisData(
@@ -96,7 +98,7 @@ data class AtisData(
     val observedUtc: String?
 ) {
     val humidityPct: Int
-        get() = relativeHumidity(tempC, dewpointC).roundToInt()
+        get() = relativeHumidity(tempC, dewpointC).roundToInt().coerceAtMost(100)
 
     val tempText: String get() = "${tempC.roundToInt()}°"
     val dewText: String get() = "${dewpointC.roundToInt()}°"
@@ -107,8 +109,8 @@ data class AtisData(
         get() = when {
             windSpeedKt == null -> "---"
             windSpeedKt == 0 -> "CALM"
-            windDirDeg == null -> "VRB/%02dKT".format(windSpeedKt)
-            else -> "%d°/%02dKT".format(windDirDeg, windSpeedKt)
+            windDirDeg == null -> "VRB/%02dKT".format(Locale.US, windSpeedKt)
+            else -> "%03d°/%02dKT".format(Locale.US, windDirDeg, windSpeedKt)
         }
 }
 

@@ -79,4 +79,14 @@ class AtisDataTest {
     fun windTextPlaceholderWhenSpeedMissing() {
         assertEquals("---", atis(windSpeedKt = null).windText)
     }
+
+    @Test
+    fun windTextZeroPadsDirectionToThreeDigits() {
+        assertEquals("080°/08KT", atis(windDirDeg = 80, windSpeedKt = 8).windText)
+    }
+
+    @Test
+    fun humidityPctClampsTo100() {
+        assertEquals(100, atis(tempC = 20.0, dewpointC = 20.2).humidityPct)
+    }
 }
