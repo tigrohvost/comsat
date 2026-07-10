@@ -640,3 +640,229 @@ git commit -m "Show ATIS/METAR readout in ATC module corner
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ```
+
+---
+
+### Task 5: Network status flow in `MainViewModel`
+
+**Files:**
+- Modify: `app/src/main/java/com/comsat/audio/viewmodel/MainViewModel.kt`
+
+**Interfaces:**
+- Consumes: nothing new (Android `ConnectivityManager`).
+- Produces: `val networkOnline: StateFlow<Boolean>` on `MainViewModel`.
+
+- [ ] **Step 1: Add the connectivity callback**
+
+In `app/src/main/java/com/comsat/audio/viewmodel/MainViewModel.kt`:
+
+Add imports:
+
+```kotlin
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+```
+
+After the ATIS state block, add:
+
+```kotlin
+    // ─── Network status (footer telemetry) ────────────────────────────────────
+
+    private val _networkOnline = MutableStateFlow(true)
+    val networkOnline: StateFlow<Boolean> = _networkOnline
+
+    private val connectivityManager: ConnectivityManager =
+        application.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) { _networkOnline.value = true }
+        override fun onLost(network: Network) {
+            // onLost fires per-network; only report offline when nothing remains
+            _networkOnline.value = connectivityManager.activeNetwork != null
+        }
+    }
+```
+
+In `init`, after `observeAtis()`, add:
+
+```kotlin
+        registerNetworkCallback()
+```
+
+Add the methods (near `observeAtis`):
+
+```kotlin
+    private fun registerNetworkCallback() {
+        _networkOnline.value = connectivityManager.activeNetwork != null
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+        connectivityManager.registerNetworkCallback(request, networkCallback)
+    }
+```
+
+In `onCleared()`, before the `serviceBound` check, add:
+
+```kotlin
+        connectivityManager.unregisterNetworkCallback(networkCallback)
+```
+
+(`Context` is already imported in this file.)
+
+- [ ] **Step 2: Compile check**
+
+Run: `./gradlew :app:compileDebugKotlin`
+Expected: BUILD SUCCESSFUL.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add app/src/main/java/com/comsat/audio/viewmodel/MainViewModel.kt
+git commit -m "Track live network status in MainViewModel
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 6: Functional footer + remove screen scroll
+
+**Files:**
+- Modify: `app/src/main/java/com/comsat/audio/ui/components/AvionicsComponents.kt` (rewrite `FooterPlacard`)
+- Modify: `app/src/main/java/com/comsat/audio/ui/screen/MainScreen.kt`
+
+**Interfaces:**
+- Consumes: `viewModel.networkOnline` from Task 5; existing `atcState`/`somaState` (`StreamState.isActive`); `BuildConfig.VERSION_NAME`.
+- Produces: `@Composable fun FooterPlacard(netOnline: Boolean, activeStreams: Int, version: String, modifier: Modifier = Modifier)`.
+
+- [ ] **Step 1: Rewrite `FooterPlacard`**
+
+In `app/src/main/java/com/comsat/audio/ui/components/AvionicsComponents.kt`, replace the entire existing `FooterPlacard` composable (the decorative PWR/SQL/XPDR row) with:
+
+```kotlin
+// ─── Footer placard: live panel telemetry ─────────────────────────────────────
+
+@Composable
+fun FooterPlacard(
+    netOnline: Boolean,
+    activeStreams: Int,
+    version: String,
+    modifier: Modifier = Modifier
+) {
+    val dim = MaterialTheme.colorScheme.outline
+    Column(modifier = modifier.fillMaxWidth()) {
+        HorizontalDivider(color = dim)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = if (netOnline) "NET ● ONLINE" else "NET ○ OFFLINE",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (netOnline) dim else NordYellow
+            )
+            Text(
+                text = "COMM $activeStreams/2",
+                style = MaterialTheme.typography.labelSmall,
+                color = dim
+            )
+            Text(
+                text = "VER $version",
+                style = MaterialTheme.typography.labelSmall,
+                color = dim
+            )
+        }
+    }
+}
+```
+
+(`NordYellow` is already imported in this file.)
+
+- [ ] **Step 2: Remove scroll and pin footer in `MainScreen`**
+
+In `app/src/main/java/com/comsat/audio/ui/screen/MainScreen.kt`:
+
+Add imports:
+
+```kotlin
+import com.comsat.audio.BuildConfig
+```
+
+Collect network state in `MainScreen` (after `atisData`):
+
+```kotlin
+    val netOnline    by viewModel.networkOnline.collectAsState()
+```
+
+Replace the root column's modifier chain:
+
+```kotlin
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+```
+
+with:
+
+```kotlin
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+```
+
+Replace the bare `FooterPlacard()` call with:
+
+```kotlin
+            Spacer(modifier = Modifier.weight(1f))
+            FooterPlacard(
+                netOnline = netOnline,
+                activeStreams = listOf(atcState.isActive, somaState.isActive).count { it },
+                version = BuildConfig.VERSION_NAME
+            )
+```
+
+Remove the now-unused imports from `MainScreen.kt`:
+
+```kotlin
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+```
+
+- [ ] **Step 3: Compile check**
+
+Run: `./gradlew :app:compileDebugKotlin`
+Expected: BUILD SUCCESSFUL.
+
+- [ ] **Step 4: Build the debug APK**
+
+Run: `./gradlew :app:assembleDebug`
+Expected: BUILD SUCCESSFUL.
+
+- [ ] **Step 5: Manual device verification**
+
+- Screen does not scroll; footer sits at the bottom edge.
+- Footer shows `NET ● ONLINE`, `COMM 0/2` (rising to 1/2, 2/2 as streams play), `VER 1.0`.
+- Airplane mode → `NET ○ OFFLINE` in yellow; restoring network flips it back.
+- Both modules fully visible on the device screen (no clipped content).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add app/src/main/java/com/comsat/audio/ui/components/AvionicsComponents.kt app/src/main/java/com/comsat/audio/ui/screen/MainScreen.kt
+git commit -m "Replace decorative footer with live telemetry and drop screen scroll
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
+```

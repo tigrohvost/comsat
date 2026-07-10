@@ -80,6 +80,19 @@ Relevant JSON fields: `temp` (°C), `dewp` (°C), `wdir` (degrees), `wspd` (knot
   `MetarDto` → `AtisData` mapping, wind-calm and placeholder formatting.
 - Repository and UI verified manually on device.
 
+## Panel Layout Changes (added during plan review)
+
+- The main screen no longer scrolls: `verticalScroll` is removed from the root
+  column. The header stays at the top, modules follow, and the footer is pinned
+  to the bottom with a weighted spacer.
+- `FooterPlacard` loses its decorative labels (PWR / SQL / XPDR) and shows real
+  telemetry instead:
+  - `NET ONLINE` / `NET OFFLINE` — live connectivity via `ConnectivityManager`
+    network callback, exposed as `MainViewModel.networkOnline: StateFlow<Boolean>`.
+    Offline renders in `NordYellow`.
+  - `COMM n/2` — number of currently active streams (ATC + AMBIENT).
+  - `VER x.y` — `BuildConfig.VERSION_NAME`.
+
 ## Out of Scope
 
 - Visibility, cloud layers, raw METAR string display.
