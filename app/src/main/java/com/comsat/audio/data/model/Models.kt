@@ -111,3 +111,25 @@ data class AtisData(
             else -> "%d°/%02dKT".format(windDirDeg, windSpeedKt)
         }
 }
+
+data class MetarDto(
+    @SerializedName("temp") val temp: Double? = null,
+    @SerializedName("dewp") val dewp: Double? = null,
+    // JSON number for degrees, or the string "VRB" for variable wind
+    @SerializedName("wdir") val wdir: String? = null,
+    @SerializedName("wspd") val wspd: Double? = null,
+    @SerializedName("altim") val altim: Double? = null,
+    @SerializedName("reportTime") val reportTime: String? = null
+) {
+    fun toAtisData(): AtisData? {
+        if (temp == null || dewp == null) return null
+        return AtisData(
+            tempC = temp,
+            dewpointC = dewp,
+            qnhHpa = altim?.roundToInt(),
+            windDirDeg = wdir?.toDoubleOrNull()?.roundToInt(),
+            windSpeedKt = wspd?.roundToInt(),
+            observedUtc = reportTime
+        )
+    }
+}
