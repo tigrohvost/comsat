@@ -106,7 +106,7 @@ fun StationListScreen(
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.secondary)
             }
-        } else if (error != null) {
+        } else if (error != null && stations.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
@@ -128,7 +128,9 @@ fun StationListScreen(
             EmptyListMessage(if (query.isBlank()) "NO STATIONS" else "NO MATCHES")
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
+                // Two columns on regular phones, one on very narrow windows
+                // and more on tablets/foldables.
+                columns = GridCells.Adaptive(minSize = 160.dp),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)

@@ -11,11 +11,13 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.net.Uri
 import android.os.Binder
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import androidx.annotation.OptIn
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -27,6 +29,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.SimpleBasePlayer
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -46,9 +49,16 @@ import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import org.json.JSONObject
+import java.io.IOException
 import javax.inject.Inject
 
+@OptIn(UnstableApi::class)
 @AndroidEntryPoint
 class AudioService : Service() {
 
@@ -85,6 +95,13 @@ class AudioService : Service() {
 
     private var atcLabel: String? = null
     private var somaLabel: String? = null
+
+    // Track-chained station (Rain Radio): non-null while the soma slot plays a
+    // station that has no continuous stream. Each mp3 is fetched via the
+    // station's /next-track API and the next one is chained on STATE_ENDED.
+    private var somaNextTrackApiBase: String? = null
+    private var somaCurrentTrackName: String? = null
+    private var somaNextTrackCall: Call? = null
 
     private var atcRetryAttempt = 0
     private var somaRetryAttempt = 0
@@ -165,16 +182,24 @@ class AudioService : Service() {
     override fun onBind(intent: Intent): IBinder = binder
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // There is no durable stream descriptor to restore after process death.
+        // Restarting an empty sticky service would leave a permanent idle
+        // notification, so only explicit starts are accepted.
+        if (intent == null) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         startForeground(ComsatApp.NOTIFICATION_ID, buildNotification())
         when (intent?.action) {
             ACTION_TOGGLE_ALL -> toggleAll()
             ACTION_STOP_ALL -> stopAll()
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     override fun onDestroy() {
         unregisterReceiver(noisyReceiver)
+        somaNextTrackCall?.cancel()
         abandonFocus()
         mediaSession.release()
         compositePlayer.release()
@@ -242,6 +267,7 @@ class AudioService : Service() {
     }
 
     fun playSoma(url: String, label: String? = null) {
+        clearChainedPlayback()
         somaUrl = url
         somaLabel = label
         somaRetryAttempt = 0
@@ -256,7 +282,29 @@ class AudioService : Service() {
         updateNotification()
     }
 
+    // Track-chained station: no continuous stream URL; resolve the first track
+    // via /next-track and keep chaining from the player's STATE_ENDED.
+    fun playSomaChained(apiBase: String, label: String? = null) {
+        clearChainedPlayback()
+        // Do not let the previously selected SomaFM stream continue underneath
+        // while the first chained track is being resolved.
+        somaPlayer.stop()
+        somaSpectrumProcessor.reset()
+        somaNextTrackApiBase = apiBase.trimEnd('/')
+        somaUrl = null
+        somaLabel = label
+        somaRetryAttempt = 0
+        handler.removeCallbacksAndMessages(somaReconnectToken)
+        requestFocus()
+        _somaNowPlaying.value = null
+        _somaState.value = StreamState(StreamStatus.LOADING)
+        ensureForeground()
+        updateNotification()
+        fetchNextChainedTrack()
+    }
+
     fun stopSoma() {
+        clearChainedPlayback()
         somaUrl = null
         somaLabel = null
         somaRetryAttempt = 0
@@ -266,6 +314,99 @@ class AudioService : Service() {
         _somaNowPlaying.value = null
         _somaState.value = StreamState(StreamStatus.IDLE)
         maybeStopForeground()
+        updateNotification()
+    }
+
+    private fun clearChainedPlayback() {
+        somaNextTrackApiBase = null
+        somaCurrentTrackName = null
+        somaNextTrackCall?.cancel()
+        somaNextTrackCall = null
+    }
+
+    private fun fetchNextChainedTrack() {
+        val apiBase = somaNextTrackApiBase ?: return
+        // null distinguishes "waiting for the next file" from a paused file.
+        // resumeAll() can then restart the API request instead of replaying an
+        // already-ended track.
+        somaUrl = null
+        somaNextTrackCall?.cancel()
+        val requestUrl = buildString {
+            append(apiBase).append("/next-track")
+            somaCurrentTrackName?.let { append("?current=").append(Uri.encode(it)) }
+        }
+        val call = okHttpClient.newCall(Request.Builder().url(requestUrl).build())
+        somaNextTrackCall = call
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                if (call.isCanceled()) return
+                handler.post {
+                    if (somaNextTrackCall !== call) return@post
+                    somaNextTrackCall = null
+                    if (somaNextTrackApiBase == apiBase &&
+                        _somaState.value.status == StreamStatus.LOADING
+                    ) {
+                        onChainedFetchFailed()
+                    }
+                }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                val track = response.use { resp ->
+                    if (!resp.isSuccessful) null
+                    else runCatching {
+                        val json = JSONObject(resp.body!!.string())
+                        val path = json.getString("url")
+                        path to json.optString("name", path.substringAfterLast('/'))
+                    }.getOrNull()
+                }
+                handler.post {
+                    if (somaNextTrackCall !== call) return@post
+                    somaNextTrackCall = null
+                    // Station may have been stopped, paused or retuned while
+                    // the HTTP callback was in flight.
+                    if (somaNextTrackApiBase != apiBase ||
+                        _somaState.value.status != StreamStatus.LOADING
+                    ) return@post
+                    val trackUrl = track?.let { resolveChainedTrackUrl(apiBase, it.first) }
+                    if (track == null || trackUrl == null) onChainedFetchFailed()
+                    else playChainedTrack(trackUrl, track.second)
+                }
+            }
+        })
+    }
+
+    private fun playChainedTrack(url: String, name: String) {
+        somaUrl = url
+        somaCurrentTrackName = name
+        // Same cleanup the station's own web player applies to file names
+        _somaNowPlaying.value = name
+            .removeSuffix(".mp3")
+            .replace(Regex("[-_]+"), " ")
+            .trim()
+            .ifBlank { null }
+        _somaState.value = StreamState(StreamStatus.LOADING)
+        somaPlayer.setMediaItem(MediaItem.fromUri(url))
+        somaPlayer.prepare()
+        somaPlayer.play()
+        updateNotification()
+    }
+
+    private fun onChainedFetchFailed() {
+        if (somaNextTrackApiBase == null) return
+        val attempt = ++somaRetryAttempt
+        _somaState.value = StreamState(StreamStatus.RECONNECTING, "STREAM OFFLINE")
+        val delayMs = when (attempt) {
+            1 -> 5_000L
+            2 -> 10_000L
+            else -> 30_000L
+        }
+        HandlerCompat.postDelayed(handler, {
+            if (_somaState.value.status == StreamStatus.RECONNECTING) {
+                _somaState.value = StreamState(StreamStatus.LOADING)
+                fetchNextChainedTrack()
+            }
+        }, somaReconnectToken, delayMs)
         updateNotification()
     }
 
@@ -295,6 +436,14 @@ class AudioService : Service() {
         }
         if (_somaState.value.status in PAUSABLE_STATUSES) {
             handler.removeCallbacksAndMessages(somaReconnectToken)
+            // Cancelling alone is not enough: an already-posted response is
+            // also gated by the PAUSED state in fetchNextChainedTrack().
+            if (somaNextTrackApiBase != null &&
+                _somaState.value.status == StreamStatus.LOADING
+            ) {
+                somaNextTrackCall?.cancel()
+                somaNextTrackCall = null
+            }
             somaPlayer.pause()
             _somaState.value = StreamState(StreamStatus.PAUSED)
         }
@@ -305,15 +454,29 @@ class AudioService : Service() {
         if (_atcState.value.status == StreamStatus.PAUSED ||
             _somaState.value.status == StreamStatus.PAUSED
         ) requestFocus()
-        resumeStream(atcPlayer, atcUrl, _atcState)
-        resumeStream(somaPlayer, somaUrl, _somaState)
+        resumeStream(atcPlayer, atcUrl, _atcState, rejoinLiveEdge = true)
+        if (somaNextTrackApiBase != null && somaUrl == null &&
+            _somaState.value.status == StreamStatus.PAUSED
+        ) {
+            // Chained station paused before its first track resolved
+            _somaState.value = StreamState(StreamStatus.LOADING)
+            fetchNextChainedTrack()
+        } else {
+            resumeStream(
+                somaPlayer, somaUrl, _somaState,
+                // A chained track is a plain file, not a live stream — resume
+                // where it paused instead of restarting from the beginning.
+                rejoinLiveEdge = somaNextTrackApiBase == null
+            )
+        }
         updateNotification()
     }
 
     private fun resumeStream(
         player: ExoPlayer,
         url: String?,
-        stateFlow: MutableStateFlow<StreamState>
+        stateFlow: MutableStateFlow<StreamState>,
+        rejoinLiveEdge: Boolean
     ) {
         if (url == null || stateFlow.value.status != StreamStatus.PAUSED) return
         stateFlow.value = StreamState(StreamStatus.LOADING)
@@ -321,7 +484,7 @@ class AudioService : Service() {
             // Was paused mid-reconnect; needs a fresh prepare
             player.setMediaItem(MediaItem.fromUri(url))
             player.prepare()
-        } else {
+        } else if (rejoinLiveEdge) {
             // Rejoin the live edge instead of replaying stale buffer
             player.seekToDefaultPosition()
         }
@@ -372,6 +535,15 @@ class AudioService : Service() {
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 val stateFlow = if (isAtc) _atcState else _somaState
+                // Chained station: a finished track is not the end of the
+                // broadcast — fetch the next one and keep going.
+                if (!isAtc && state == Player.STATE_ENDED && somaNextTrackApiBase != null) {
+                    somaUrl = null
+                    stateFlow.value = StreamState(StreamStatus.LOADING)
+                    fetchNextChainedTrack()
+                    updateNotification()
+                    return
+                }
                 stateFlow.value = when (state) {
                     Player.STATE_BUFFERING ->
                         if (stateFlow.value.status == StreamStatus.PAUSED) stateFlow.value
@@ -397,7 +569,12 @@ class AudioService : Service() {
 
             override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
                 if (!isAtc) {
-                    _somaNowPlaying.value = mediaMetadata.title?.toString()?.takeIf { it.isNotBlank() }
+                    val title = mediaMetadata.title?.toString()?.takeIf { it.isNotBlank() }
+                    // Chained tracks rarely carry tags; keep the /next-track
+                    // name rather than clearing it with a null ID3 title.
+                    if (somaNextTrackApiBase == null || title != null) {
+                        _somaNowPlaying.value = title
+                    }
                     updateNotification()
                 }
             }

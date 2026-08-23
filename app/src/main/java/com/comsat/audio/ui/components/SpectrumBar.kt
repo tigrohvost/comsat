@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.Text
 import androidx.compose.runtime.withFrameNanos
-import com.comsat.audio.service.SpectrumProcessor
+import com.comsat.audio.service.SpectrumAnalysis
 import kotlin.math.max
 
 // Winamp-style spectrum: bars rise instantly, decay slowly; peak caps fall
@@ -47,8 +47,8 @@ fun SpectrumBar(
     val latestActive by rememberUpdatedState(active)
     val latestVolume by rememberUpdatedState(volume)
 
-    val levels = remember { FloatArray(SpectrumProcessor.BANDS) }
-    val peaks = remember { FloatArray(SpectrumProcessor.BANDS) }
+    val levels = remember { FloatArray(SpectrumAnalysis.BANDS) }
+    val peaks = remember { FloatArray(SpectrumAnalysis.BANDS) }
     var frame by remember { mutableLongStateOf(0L) }
 
     // Frame loop drives decay physics; pauses with the composition (offscreen)

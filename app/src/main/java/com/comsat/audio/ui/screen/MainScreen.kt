@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.DarkMode
@@ -91,59 +93,67 @@ fun MainScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing)
-                .padding(horizontal = 16.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(horizontal = 16.dp, vertical = 16.dp)
         ) {
-            PanelHeader()
-
-            AvionicsModule(
-                title = "COMM 1 · ATC",
-                status = atcState.status,
-                accent = MaterialTheme.colorScheme.primary
+            // Content takes the leftover height and scrolls when it doesn't fit,
+            // so the footer below keeps its intrinsic size on any screen.
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                StreamModuleBody(
-                    sourceName = airport?.let { "${it.icao} · ${it.name.uppercase()}" }
-                        ?: "NO AIRPORT SELECTED",
-                    subLabel = airport?.let { "${it.city}, ${it.country} — TOWER".uppercase() },
-                    state = atcState,
-                    spectrum = atcSpectrum,
-                    volume = atcVolume,
-                    onVolumeChange = viewModel::setAtcVolume,
-                    onToggle = viewModel::toggleAtcPlayback,
-                    onSelectSource = { navController.navigate(Screen.Airports.route) },
-                    accent = MaterialTheme.colorScheme.primary,
-                    cornerContent = {
-                        AtisReadout(
-                            data = atisData,
-                            accent = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                )
-            }
+                PanelHeader()
 
-            AvionicsModule(
-                title = "COMM 2 · AMBIENT",
-                status = somaState.status,
-                accent = MaterialTheme.colorScheme.tertiary
-            ) {
-                StreamModuleBody(
-                    sourceName = station?.title?.uppercase() ?: "NO STATION SELECTED",
-                    subLabel = (nowPlaying ?: station?.genre?.let { "SOMAFM — $it" })?.uppercase(),
-                    state = somaState,
-                    spectrum = somaSpectrum,
-                    volume = somaVolume,
-                    onVolumeChange = viewModel::setSomaVolume,
-                    onToggle = viewModel::toggleSomaPlayback,
-                    onSelectSource = { navController.navigate(Screen.Stations.route) },
+                AvionicsModule(
+                    title = "COMM 1 · ATC",
+                    status = atcState.status,
+                    accent = MaterialTheme.colorScheme.primary
+                ) {
+                    StreamModuleBody(
+                        sourceName = airport?.let { "${it.icao} · ${it.name.uppercase()}" }
+                            ?: "NO AIRPORT SELECTED",
+                        subLabel = airport?.let { "${it.city}, ${it.country} — TOWER".uppercase() },
+                        state = atcState,
+                        spectrum = atcSpectrum,
+                        volume = atcVolume,
+                        onVolumeChange = viewModel::setAtcVolume,
+                        onToggle = viewModel::toggleAtcPlayback,
+                        onSelectSource = { navController.navigate(Screen.Airports.route) },
+                        accent = MaterialTheme.colorScheme.primary,
+                        cornerContent = {
+                            AtisReadout(
+                                data = atisData,
+                                accent = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    )
+                }
+
+                AvionicsModule(
+                    title = "COMM 2 · AMBIENT",
+                    status = somaState.status,
                     accent = MaterialTheme.colorScheme.tertiary
-                )
+                ) {
+                    StreamModuleBody(
+                        sourceName = station?.title?.uppercase() ?: "NO STATION SELECTED",
+                        subLabel = (nowPlaying ?: station?.let { "${it.network} — ${it.genre}" })?.uppercase(),
+                        state = somaState,
+                        spectrum = somaSpectrum,
+                        volume = somaVolume,
+                        onVolumeChange = viewModel::setSomaVolume,
+                        onToggle = viewModel::toggleSomaPlayback,
+                        onSelectSource = { navController.navigate(Screen.Stations.route) },
+                        accent = MaterialTheme.colorScheme.tertiary
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.weight(1f))
             FooterPlacard(
                 netOnline = netOnline,
                 activeStreams = listOf(atcState.isActive, somaState.isActive).count { it },
-                version = BuildConfig.VERSION_NAME
+                version = BuildConfig.VERSION_NAME,
+                modifier = Modifier.padding(top = 16.dp)
             )
         }
     }

@@ -67,7 +67,13 @@ data class SomaStation(
     val genre: String,
     val streamUrl: String,
     val imageUrl: String,
-    val listeners: Int = 0
+    val listeners: Int = 0,
+    // Network name shown under the station title on the main panel
+    val network: String = "SOMAFM",
+    // Non-null for track-chained stations (Rain Radio): base URL of the
+    // /next-track API. Such stations have no continuous stream; playback
+    // fetches one mp3 at a time and chains the next on STATE_ENDED.
+    val nextTrackApiBase: String? = null
 )
 
 // ─── Stream state ─────────────────────────────────────────────────────────────

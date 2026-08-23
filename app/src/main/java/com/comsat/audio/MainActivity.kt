@@ -10,6 +10,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
@@ -35,8 +36,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         requestNotificationPermissionIfNeeded()
         setContent {
-            val themeMode by settingsRepo.settings
-                .map { it.themeMode }
+            val themeModeFlow = remember(settingsRepo) {
+                settingsRepo.settings.map { it.themeMode }
+            }
+            val themeMode by themeModeFlow
                 .collectAsState(initial = ThemeMode.NORDIC)
             ComsatTheme(
                 mode = themeMode,

@@ -8,14 +8,4 @@
     <string name="notification_action_pause">Pause</string>
     <string name="notification_action_stop">Stop</string>
     <string name="notification_paused">Paused</string>
-    <string name="atc_feed">ATC FEED</string>
-    <string name="ambient_feed">AMBIENT</string>
-    <string name="select_airport">SELECT AIRPORT</string>
-    <string name="select_station">SELECT STATION</string>
-    <string name="no_airport">NO AIRPORT SELECTED</string>
-    <string name="no_station">NO STATION SELECTED</string>
-    <string name="online">ONLINE</string>
-    <string name="offline">OFFLINE</string>
-    <string name="reconnecting">RECONNECTING</string>
-    <string name="buffering">BUFFERING</string>
 </resources>

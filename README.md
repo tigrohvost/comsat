@@ -1,83 +1,112 @@
-# COMSAT
+<div align="center">
 
-Dual-stream ambient audio player for Android: live air-traffic-control radio
-from [LiveATC](https://www.liveatc.net/) mixed with ambient music from
-[SomaFM](https://somafm.com/), each with its own volume fader. Tune a tower
-frequency, put Drone Zone underneath it, and get that "lofi ATC" atmosphere
-with full control over the mix.
+<h1>COMSAT</h1>
 
-Inspired by [listen to the.cloud](https://listentothe.cloud/), which pioneered
-the ATC-plus-ambient mix in the browser.
+<p><strong>Air traffic above. Atmosphere below.</strong><br>
+An Android audio panel that mixes live ATC with ambient radio — two streams,
+two faders, one cockpit-inspired interface.</p>
 
-![Main screen](comsat_mockup.png)
+<p><a href="https://github.com/tigrohvost/comsat/actions/workflows/android-ci.yml"><img alt="Android CI" src="https://github.com/tigrohvost/comsat/actions/workflows/android-ci.yml/badge.svg?branch=main"></a> <img alt="Android 8+" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=flat-square&amp;logo=android&amp;logoColor=white"> <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-2.0-7F52FF?style=flat-square&amp;logo=kotlin&amp;logoColor=white"> <img alt="Compose" src="https://img.shields.io/badge/Jetpack-Compose-4285F4?style=flat-square&amp;logo=jetpackcompose&amp;logoColor=white"></p>
 
-## Features
+<p><a href="https://github.com/tigrohvost/comsat/releases/latest/download/COMSAT.apk"><strong>Download the latest signed APK</strong></a></p>
 
-- **Two independent streams** — an ATC feed and a SomaFM station play
-  simultaneously through separate ExoPlayer instances with per-stream volume
-- **Real spectrum analyzers** — each stream taps its decoded PCM via a
-  `TeeAudioProcessor` (no `RECORD_AUDIO`), runs an FFT and renders a
-  Winamp-style 24-band spectrum with falling peak caps, per channel
-- **Curated airport catalog** with region grouping, search (ICAO / city /
-  country) and live online/offline status for each feed
-- **Full SomaFM directory** with artwork, genres, listener counts and search
-- **Background playback** as a foreground media service: lock-screen /
-  headset controls drive both streams through a single MediaSession
-- **Resilient streaming** — automatic reconnect with backoff, audio-focus
-  handling (ducking, transient loss), pause on headphone unplug
-- **Avionics instrument-panel UI** — cockpit modules with status LEDs and
-  placards, tick faders with digital readouts, a live UTC clock, and a
-  drifting vector world chart (Natural Earth coastlines) with a 10° graticule
-  and a crosshair on the tuned airport
-- **Three themes** — Nord (default), cyberpunk dark, high-contrast light
-- **Persistent settings** — volumes, selected sources and theme survive
-  restarts (DataStore)
+<img src="comsat_mockup.png" width="520" alt="COMSAT cockpit-inspired dual-stream interface">
+
+<sub>Interface concept. The app UI is implemented natively with Jetpack Compose.</sub>
+
+</div>
+
+## Two channels, one atmosphere
+
+| `COMM 1 · ATC` | `COMM 2 · AMBIENT` | `PANEL` |
+|---|---|---|
+| LiveATC airport feeds, availability probes and METAR/ATIS weather | The SomaFM catalog plus Rain Radio's generated ambient tracks | Independent volume, live FFT spectra, themes and persistent selections |
+
+Playback continues in the background through a foreground media service. Lock
+screen and headset controls drive both ExoPlayer instances through one
+MediaSession; reconnect backoff, audio focus, ducking and unplug protection are
+built in.
+
+## Get on air
+
+1. Download [`COMSAT.apk`](https://github.com/tigrohvost/comsat/releases/latest/download/COMSAT.apk).
+2. Install it on Android 8.0 or newer and allow notifications for background controls.
+3. Pick an airport, pick an ambient station and balance the two faders.
+
+> [!TIP]
+> Headphones make the mix more immersive — and keep an unexpected tower feed
+> from reaching the room. COMSAT pauses automatically when they disconnect.
+
+<details>
+<summary><strong>Airport and station selectors</strong></summary>
 
 | Airports | Stations |
 |---|---|
-| ![Airports](comsat_airports.png) | ![Stations](comsat_stations.png) |
+| <img src="comsat_airports.png" alt="Airport selector concept" width="390"> | <img src="comsat_stations.png" alt="Station selector concept" width="390"> |
 
-## Tech stack
+</details>
 
-Kotlin · Jetpack Compose (Material 3) · Media3/ExoPlayer · Hilt · Retrofit +
-OkHttp · Coil · DataStore · single-activity Navigation Compose.
+## Under the panel
 
-```
-app/src/main/java/com/comsat/audio/
-├── data/          # models, SomaFM API, LiveATC + settings repositories
-├── di/            # Hilt modules
-├── service/       # AudioService: two ExoPlayers behind one MediaSession + FFT
-├── ui/            # Compose screens, avionics components, themes
-└── viewmodel/     # MainViewModel: service binding + UI state
-```
+`Kotlin` · `Jetpack Compose / Material 3` · `Media3 / ExoPlayer` · `Hilt` ·
+`Retrofit / OkHttp` · `DataStore` · `Coil`
 
-## Building
+The spectrum display taps decoded PCM with `TeeAudioProcessor`, so it needs no
+microphone permission. Release builds are minified and resource-shrunk; GitHub
+Actions tests, lints, signs and verifies every tagged APK, then publishes it
+with a SHA-256 checksum.
 
-Requires JDK 17–21 (Gradle 8.9 does not run on newer JDKs) and the Android
-SDK (compileSdk 35). minSdk is 26 (Android 8.0).
+<details>
+<summary><strong>Build from source</strong></summary>
+
+Requires JDK 21 and Android SDK 35.
 
 ```bash
-./gradlew assembleDebug
+./gradlew testDebugUnitTest lintDebug assembleDebug
 ```
 
-### Release build
-
-The release build is minified and signed. Signing credentials are read from
-environment variables so they never enter the repository:
+For a signed release, provide the keystore through environment variables:
 
 ```bash
-export COMSAT_KEYSTORE=~/.android/comsat-release.keystore
-export COMSAT_KEYSTORE_PASSWORD=…
+export COMSAT_KEYSTORE=/absolute/path/to/comsat-release.keystore
+export COMSAT_KEYSTORE_PASSWORD='<store password>'
 export COMSAT_KEY_ALIAS=comsat
-export COMSAT_KEY_PASSWORD=…
+export COMSAT_KEY_PASSWORD='<key password>'
 ./gradlew assembleRelease
-# → app/build/outputs/apk/release/app-release.apk
 ```
 
-## Streams
+Without signing variables, Gradle intentionally produces an unsigned release
+APK. Credentials and keystores are ignored by Git and never belong in the
+repository.
 
-Audio comes from third-party services — [LiveATC](https://www.liveatc.net/)
-(ATC feeds) and [SomaFM](https://somafm.com/) (listener-supported radio;
-consider [supporting them](https://somafm.com/support/)). This app is not
-affiliated with either. Feed availability depends on volunteer-run receivers
-and can change at any time.
+</details>
+
+<details>
+<summary><strong>Publish a release</strong></summary>
+
+Set the repository secrets `COMSAT_KEYSTORE_BASE64` and
+`COMSAT_KEYSTORE_PASSWORD`, update `versionName` / `versionCode`, then push a
+matching semantic tag:
+
+```bash
+git tag -a v1.1.0 -m "COMSAT 1.1.0"
+git push origin v1.1.0
+```
+
+The release workflow rejects a tag that does not match the app version. A
+successful run publishes stable assets named `COMSAT.apk` and
+`COMSAT.apk.sha256`, so the download link at the top always follows the latest
+release.
+
+</details>
+
+## Signal sources
+
+ATC audio comes from [LiveATC](https://www.liveatc.net/); ambient stations come
+from listener-supported [SomaFM](https://somafm.com/) and Rain Radio. COMSAT is
+not affiliated with LiveATC or SomaFM. Feeds depend on third-party and
+volunteer-run infrastructure, so individual stations can disappear or go
+offline at any time.
+
+Inspired by [listen to the.cloud](https://listentothe.cloud/), the original
+browser-based ATC + ambient mix.

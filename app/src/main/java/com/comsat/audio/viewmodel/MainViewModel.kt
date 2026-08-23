@@ -8,7 +8,6 @@ import android.content.ServiceConnection
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.os.IBinder
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -24,6 +23,7 @@ import com.comsat.audio.data.repository.SomaFmRepository
 import com.comsat.audio.service.AudioService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,9 +45,9 @@ class MainViewModel @Inject constructor(
     private var serviceBound = false
     private val collectJobs = mutableListOf<Job>()
 
-    // Play requests (url to label) issued before the service connection completes
+    // Play requests issued before the service connection completes
     private var pendingAtc: Pair<String, String>? = null
-    private var pendingSoma: Pair<String, String>? = null
+    private var pendingSomaStation: SomaStation? = null
 
     // ─── Service binding ──────────────────────────────────────────────────────
 
@@ -85,8 +85,8 @@ class MainViewModel @Inject constructor(
 
             pendingAtc?.let { (url, label) -> svc.playAtc(url, label) }
             pendingAtc = null
-            pendingSoma?.let { (url, label) -> svc.playSoma(url, label) }
-            pendingSoma = null
+            pendingSomaStation?.let { startSoma(svc, it) }
+            pendingSomaStation = null
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
@@ -119,11 +119,18 @@ class MainViewModel @Inject constructor(
         application.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) { _networkOnline.value = true }
-        override fun onLost(network: Network) {
-            // onLost fires per-network; only report offline when nothing remains
-            _networkOnline.value = connectivityManager.activeNetwork != null
+        override fun onAvailable(network: Network) = updateNetworkStatus()
+
+        override fun onCapabilitiesChanged(
+            network: Network,
+            networkCapabilities: NetworkCapabilities
+        ) {
+            _networkOnline.value = networkCapabilities.hasCapability(
+                NetworkCapabilities.NET_CAPABILITY_VALIDATED
+            )
         }
+
+        override fun onLost(network: Network) = updateNetworkStatus()
     }
 
     // ─── Station state ────────────────────────────────────────────────────────
@@ -201,8 +208,16 @@ class MainViewModel @Inject constructor(
     fun loadAirports() {
         viewModelScope.launch {
             _airportsLoading.value = true
-            _airports.value = liveAtcRepo.getAirportsWithStatus()
-            _airportsLoading.value = false
+            try {
+                _airports.value = liveAtcRepo.getAirportsWithStatus()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // The catalog itself is bundled; only online probes are lost.
+                _airports.value = AIRPORT_CATALOG
+            } finally {
+                _airportsLoading.value = false
+            }
         }
     }
 
@@ -210,13 +225,20 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             _stationsLoading.value = true
             _stationsError.value = null
-            runCatching { somaRepo.getStations() }
-                .onSuccess {
-                    _stations.value = it
-                    applyRestoredStation()
-                }
-                .onFailure { _stationsError.value = friendlyLoadError(it) }
-            _stationsLoading.value = false
+            try {
+                _stations.value = somaRepo.getStations()
+                applyRestoredStation()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Rain's own stations don't depend on the SomaFM API — keep
+                // them selectable even when the directory is down.
+                _stations.value = somaRepo.customStations
+                applyRestoredStation()
+                _stationsError.value = friendlyLoadError(e)
+            } finally {
+                _stationsLoading.value = false
+            }
         }
     }
 
@@ -236,11 +258,16 @@ class MainViewModel @Inject constructor(
     }
 
     private fun registerNetworkCallback() {
-        _networkOnline.value = connectivityManager.activeNetwork != null
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .build()
-        connectivityManager.registerNetworkCallback(request, networkCallback)
+        updateNetworkStatus()
+        connectivityManager.registerDefaultNetworkCallback(networkCallback)
+    }
+
+    private fun updateNetworkStatus() {
+        val active = connectivityManager.activeNetwork
+        val capabilities = active?.let(connectivityManager::getNetworkCapabilities)
+        _networkOnline.value = capabilities?.hasCapability(
+            NetworkCapabilities.NET_CAPABILITY_VALIDATED
+        ) == true
     }
 
     // Raw exception messages are user-hostile; collapse into short HUD-style statuses
@@ -274,10 +301,17 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch { settingsRepo.setStation(station.id) }
         val ctx = getApplication<Application>()
         ctx.startService(Intent(ctx, AudioService::class.java))
-        // streamUrl is a direct ice*.somafm.com URL — no PLS resolution needed
         val svc = audioService
-        if (svc != null) svc.playSoma(station.streamUrl, station.title)
-        else pendingSoma = station.streamUrl to station.title
+        if (svc != null) startSoma(svc, station)
+        else pendingSomaStation = station
+    }
+
+    private fun startSoma(svc: AudioService, station: SomaStation) {
+        val apiBase = station.nextTrackApiBase
+        // Direct stations carry a plain stream URL; chained ones (Rain Radio)
+        // resolve tracks through their /next-track API inside the service.
+        if (apiBase != null) svc.playSomaChained(apiBase, station.title)
+        else svc.playSoma(station.streamUrl, station.title)
     }
 
     fun toggleSomaPlayback() {

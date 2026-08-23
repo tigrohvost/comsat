@@ -6,6 +6,22 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+val releaseKeystorePath = System.getenv("COMSAT_KEYSTORE")?.takeIf { it.isNotBlank() }
+val releaseStorePassword =
+    System.getenv("COMSAT_KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() }
+val releaseKeyAlias =
+    System.getenv("COMSAT_KEY_ALIAS")?.takeIf { it.isNotBlank() } ?: "comsat"
+val releaseKeyPassword =
+    System.getenv("COMSAT_KEY_PASSWORD")?.takeIf { it.isNotBlank() }
+        ?: releaseStorePassword
+
+if ((releaseKeystorePath == null) != (releaseStorePassword == null)) {
+    throw GradleException(
+        "Release signing requires both COMSAT_KEYSTORE and COMSAT_KEYSTORE_PASSWORD"
+    )
+}
+val releaseSigningConfigured = releaseKeystorePath != null
+
 android {
     namespace = "com.comsat.audio"
     compileSdk = 35
@@ -14,22 +30,23 @@ android {
         applicationId = "com.comsat.audio"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
-        // Credentials come from the environment so they never land in VCS:
-        //   COMSAT_KEYSTORE, COMSAT_KEYSTORE_PASSWORD, COMSAT_KEY_ALIAS, COMSAT_KEY_PASSWORD
-        create("release") {
-            storeFile = file(
-                System.getenv("COMSAT_KEYSTORE")
-                    ?: (System.getProperty("user.home") + "/.android/comsat-release.keystore")
-            )
-            storePassword = System.getenv("COMSAT_KEYSTORE_PASSWORD") ?: ""
-            keyAlias = System.getenv("COMSAT_KEY_ALIAS") ?: "comsat"
-            keyPassword = System.getenv("COMSAT_KEY_PASSWORD") ?: ""
+        if (releaseSigningConfigured) {
+            // Credentials come from the environment and never enter VCS.
+            create("release") {
+                storeFile = file(requireNotNull(releaseKeystorePath))
+                storePassword = requireNotNull(releaseStorePassword)
+                keyAlias = releaseKeyAlias
+                keyPassword = requireNotNull(releaseKeyPassword)
+                enableV2Signing = true
+                enableV3Signing = true
+                enableV4Signing = true
+            }
         }
     }
 
@@ -37,7 +54,9 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("release")
+            if (releaseSigningConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
