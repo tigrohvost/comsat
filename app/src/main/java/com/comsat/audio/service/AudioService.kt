@@ -190,7 +190,7 @@ class AudioService : Service() {
             return START_NOT_STICKY
         }
         startForeground(ComsatApp.NOTIFICATION_ID, buildNotification())
-        when (intent?.action) {
+        when (intent.action) {
             ACTION_TOGGLE_ALL -> toggleAll()
             ACTION_STOP_ALL -> stopAll()
         }
@@ -355,7 +355,7 @@ class AudioService : Service() {
                 val track = response.use { resp ->
                     if (!resp.isSuccessful) null
                     else runCatching {
-                        val json = JSONObject(resp.body!!.string())
+                        val json = JSONObject(resp.body.string())
                         val path = json.getString("url")
                         path to json.optString("name", path.substringAfterLast('/'))
                     }.getOrNull()
@@ -516,7 +516,7 @@ class AudioService : Service() {
                 enableAudioTrackPlaybackParams: Boolean
             ): AudioSink = DefaultAudioSink.Builder(context)
                 .setEnableFloatOutput(enableFloatOutput)
-                .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                .setEnableAudioOutputPlaybackParameters(enableAudioTrackPlaybackParams)
                 .setAudioProcessors(arrayOf(TeeAudioProcessor(spectrumProcessor)))
                 .build()
         }

@@ -6,7 +6,7 @@
 An Android audio panel that mixes live ATC with ambient radio — two streams,
 two faders, one cockpit-inspired interface.</p>
 
-<p><a href="https://github.com/tigrohvost/comsat/actions/workflows/android-ci.yml"><img alt="Android CI" src="https://github.com/tigrohvost/comsat/actions/workflows/android-ci.yml/badge.svg?branch=main"></a> <img alt="Android 8+" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=flat-square&amp;logo=android&amp;logoColor=white"> <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-2.0-7F52FF?style=flat-square&amp;logo=kotlin&amp;logoColor=white"> <img alt="Compose" src="https://img.shields.io/badge/Jetpack-Compose-4285F4?style=flat-square&amp;logo=jetpackcompose&amp;logoColor=white"></p>
+<p><a href="https://github.com/tigrohvost/comsat/actions/workflows/android-ci.yml"><img alt="Android CI" src="https://github.com/tigrohvost/comsat/actions/workflows/android-ci.yml/badge.svg?branch=main"></a> <img alt="Android 8+" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=flat-square&amp;logo=android&amp;logoColor=white"> <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-2.4-7F52FF?style=flat-square&amp;logo=kotlin&amp;logoColor=white"> <img alt="Compose" src="https://img.shields.io/badge/Jetpack-Compose-4285F4?style=flat-square&amp;logo=jetpackcompose&amp;logoColor=white"></p>
 
 <p><a href="https://github.com/tigrohvost/comsat/releases/latest/download/COMSAT.apk"><strong>Download the latest signed APK</strong></a></p>
 
@@ -59,7 +59,7 @@ with a SHA-256 checksum.
 <details>
 <summary><strong>Build from source</strong></summary>
 
-Requires JDK 21 and Android SDK 35.
+Requires JDK 21 and Android SDK 37 with Build Tools 37.0.0.
 
 ```bash
 ./gradlew testDebugUnitTest lintDebug assembleDebug
@@ -89,8 +89,8 @@ Set the repository secrets `COMSAT_KEYSTORE_BASE64` and
 matching semantic tag:
 
 ```bash
-git tag -a v1.1.0 -m "COMSAT 1.1.0"
-git push origin v1.1.0
+git tag -a v1.2.0 -m "COMSAT 1.2.0"
+git push origin v1.2.0
 ```
 
 The release workflow rejects a tag that does not match the app version. A

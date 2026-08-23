@@ -39,6 +39,11 @@ jobs:
         with:
           cache-provider: basic
 
+      - name: Install Android 17 SDK
+        run: >-
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          "platforms;android-37" "build-tools;37.0.0"
+
       - name: Validate tag and signing secrets
         env:
           COMSAT_KEYSTORE_BASE64: ${{ secrets.COMSAT_KEYSTORE_BASE64 }}

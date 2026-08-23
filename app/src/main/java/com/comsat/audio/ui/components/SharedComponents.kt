@@ -24,6 +24,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativePaint
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -33,7 +34,7 @@ import androidx.compose.ui.unit.dp
 fun Modifier.glowEffect(color: Color, radius: Dp = 6.dp): Modifier = drawBehind {
     drawIntoCanvas {
         val paint = androidx.compose.ui.graphics.Paint().apply {
-            asFrameworkPaint().apply {
+            nativePaint.apply {
                 isAntiAlias = true
                 this.color = android.graphics.Color.TRANSPARENT
                 setShadowLayer(radius.toPx(), 0f, 0f, color.copy(alpha = 0.6f).toArgb())
