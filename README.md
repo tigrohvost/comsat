@@ -1,5 +1,7 @@
 <div align="center">
 
+[English](README.md) · [Русский](README.ru.md)
+
 <h1>COMSAT</h1>
 
 <p><strong>Air traffic above. Atmosphere below.</strong><br>
