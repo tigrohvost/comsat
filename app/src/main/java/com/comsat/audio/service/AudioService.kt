@@ -502,9 +502,9 @@ class AudioService : Service() {
     // ─── Player factory ───────────────────────────────────────────────────────
 
     private fun buildPlayer(isAtc: Boolean): ExoPlayer {
-        // OkHttpDataSource follows cross-protocol redirects (HTTP→HTTPS) which
-        // DefaultHttpDataSource does not. d.liveatc.net dispatches over HTTP then
-        // 302-redirects to an HTTPS Icecast server, so this is required.
+        // OkHttpDataSource follows redirects (including cross-protocol ones) and
+        // shares the app's OkHttpClient. d.liveatc.net 302-redirects every stream
+        // request to the active Icecast server.
         val dataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
         // TeeAudioProcessor mirrors the decoded PCM into the spectrum analyzer
         // without touching the audio path (and without RECORD_AUDIO).

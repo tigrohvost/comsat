@@ -1,9 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- d.liveatc.net dispatches stream requests over HTTP then 302-redirects to HTTPS -->
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">liveatc.net</domain>
-    </domain-config>
     <!-- Rain's radio server (Rain Radio :8788) streams over plain HTTP -->
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">192.144.15.152</domain>

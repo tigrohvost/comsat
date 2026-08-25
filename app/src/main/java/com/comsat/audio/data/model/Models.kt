@@ -20,8 +20,9 @@ data class Airport(
 ) {
     // d.liveatc.net is a Cloudflare-fronted dispatcher that 302-redirects to the active
     // Icecast server (e.g. https://s1-bos.liveatc.net/{feedId}?nocache=...).
-    // Both OkHttp and ExoPlayer follow cross-protocol redirects automatically.
-    val streamUrl: String get() = "http://d.liveatc.net/$feedId"
+    // Always HTTPS: some mobile carriers silently drop plain-HTTP requests to this
+    // host (request sent, no reply until timeout) while HTTPS goes through.
+    val streamUrl: String get() = "https://d.liveatc.net/$feedId"
 }
 
 // ─── Soma.fm ──────────────────────────────────────────────────────────────────
