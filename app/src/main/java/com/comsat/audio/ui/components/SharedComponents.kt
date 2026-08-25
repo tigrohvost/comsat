@@ -1,31 +1,38 @@
 package com.comsat.audio.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SearchBar
-import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativePaint
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -62,9 +69,8 @@ fun OnlineDot(isOnline: Boolean, modifier: Modifier = Modifier) {
     )
 }
 
-// ─── Search field (collapsed search bar with clear button) ────────────────────
+// ─── Search field (avionics-style bordered input with clear button) ──────────
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ComsatSearchField(
     query: String,
@@ -73,37 +79,75 @@ fun ComsatSearchField(
     modifier: Modifier = Modifier,
     accentColor: Color = MaterialTheme.colorScheme.primary
 ) {
-    SearchBar(
-        inputField = {
-            SearchBarDefaults.InputField(
-                query = query,
-                onQueryChange = onQueryChange,
-                onSearch = {},
-                expanded = false,
-                onExpandedChange = {},
-                placeholder = { Text(placeholder, style = MaterialTheme.typography.bodyMedium) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = accentColor) },
-                trailingIcon = {
+    val interactionSource = remember { MutableInteractionSource() }
+    val focused by interactionSource.collectIsFocusedAsState()
+    // Same bezel language as AvionicsModule / StatusPlacard: 1 dp square
+    // outline that picks up the module accent while the field is focused.
+    val borderColor = if (focused) accentColor.copy(alpha = 0.55f)
+    else MaterialTheme.colorScheme.outline
+    val textStyle = MaterialTheme.typography.bodyMedium.copy(
+        color = MaterialTheme.colorScheme.onSurface
+    )
+
+    BasicTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        modifier = modifier,
+        singleLine = true,
+        textStyle = textStyle,
+        cursorBrush = SolidColor(accentColor),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        interactionSource = interactionSource,
+        decorationBox = { innerTextField ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, borderColor)
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.72f))
+                    .padding(start = 12.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(
+                    Icons.Default.Search,
+                    contentDescription = null,
+                    tint = accentColor,
+                    modifier = Modifier.size(18.dp)
+                )
+                Box(modifier = Modifier.weight(1f)) {
+                    if (query.isEmpty()) {
+                        Text(
+                            text = placeholder,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    innerTextField()
+                }
+                // Reserve the slot even when empty so the text doesn't jump
+                Box(
+                    modifier = Modifier.size(28.dp),
+                    contentAlignment = Alignment.Center
+                ) {
                     if (query.isNotEmpty()) {
-                        IconButton(onClick = { onQueryChange("") }) {
-                            Icon(
-                                Icons.Default.Close,
-                                contentDescription = "Clear search",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Clear search",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clickable(
+                                    interactionSource = null,
+                                    indication = null,
+                                    onClick = { onQueryChange("") }
+                                )
+                                .padding(5.dp)
+                        )
                     }
                 }
-            )
-        },
-        expanded = false,
-        onExpandedChange = {},
-        modifier = modifier,
-        shape = RoundedCornerShape(4.dp),
-        colors = SearchBarDefaults.colors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
-    ) {}
+            }
+        }
+    )
 }
 
 // ─── Empty list message ───────────────────────────────────────────────────────
