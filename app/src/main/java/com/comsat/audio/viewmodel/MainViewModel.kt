@@ -15,7 +15,7 @@ import com.comsat.audio.data.model.Airport
 import com.comsat.audio.data.model.AtisData
 import com.comsat.audio.data.model.SomaStation
 import com.comsat.audio.data.model.StreamState
-import com.comsat.audio.data.repository.AIRPORT_CATALOG
+import com.comsat.audio.data.repository.AirportCatalog
 import com.comsat.audio.data.repository.LiveAtcRepository
 import com.comsat.audio.data.repository.MetarRepository
 import com.comsat.audio.data.repository.SettingsRepository
@@ -34,6 +34,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
+    private val airportCatalog: AirportCatalog,
     application: Application,
     private val liveAtcRepo: LiveAtcRepository,
     private val somaRepo: SomaFmRepository,
@@ -96,7 +97,9 @@ class MainViewModel @Inject constructor(
 
     // ─── Airport state ────────────────────────────────────────────────────────
 
-    private val _airports = MutableStateFlow<List<Airport>>(emptyList())
+    // Starts as the bundled catalog (map + list render immediately); the status
+    // probe swaps in copies with activeFeed set.
+    private val _airports = MutableStateFlow(airportCatalog.airports)
     val airports: StateFlow<List<Airport>> = _airports
 
     private val _airportsLoading = MutableStateFlow(false)
@@ -179,7 +182,7 @@ class MainViewModel @Inject constructor(
             audioService?.setSomaVolume(s.somaVolume)
             s.airportIcao?.let { icao ->
                 if (_selectedAirport.value == null) {
-                    _selectedAirport.value = AIRPORT_CATALOG.find { it.icao == icao }
+                    _selectedAirport.value = _airports.value.find { it.icao == icao }
                 }
             }
             restoredStationId = s.stationId
@@ -209,12 +212,18 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             _airportsLoading.value = true
             try {
-                _airports.value = liveAtcRepo.getAirportsWithStatus()
+                val probed = liveAtcRepo.getAirportsWithStatus()
+                _airports.value = probed
+                // Keep the selection in step so its label/feed reflect the probe,
+                // without touching whatever is already playing.
+                _selectedAirport.value?.let { sel ->
+                    probed.find { it.icao == sel.icao }?.let { _selectedAirport.value = it }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 // The catalog itself is bundled; only online probes are lost.
-                _airports.value = AIRPORT_CATALOG
+                _airports.value = airportCatalog.airports
             } finally {
                 _airportsLoading.value = false
             }
@@ -280,15 +289,16 @@ class MainViewModel @Inject constructor(
     }
 
     fun selectAirport(airport: Airport) {
-        _selectedAirport.value = airport
-        viewModelScope.launch { settingsRepo.setAirport(airport.icao) }
+        // Prefer the probed copy: it knows which feed is actually streaming.
+        val resolved = _airports.value.find { it.icao == airport.icao && it.isOnline } ?: airport
+        _selectedAirport.value = resolved
+        viewModelScope.launch { settingsRepo.setAirport(resolved.icao) }
         val ctx = getApplication<Application>()
         ctx.startService(Intent(ctx, AudioService::class.java))
-        // streamUrl is now a direct Icecast URL — no resolution step needed
-        val label = "${airport.icao} ${airport.name}"
+        val label = "${resolved.icao} ${resolved.name}"
         val svc = audioService
-        if (svc != null) svc.playAtc(airport.streamUrl, label)
-        else pendingAtc = airport.streamUrl to label
+        if (svc != null) svc.playAtc(resolved.streamUrl, label)
+        else pendingAtc = resolved.streamUrl to label
     }
 
     fun toggleAtcPlayback() {

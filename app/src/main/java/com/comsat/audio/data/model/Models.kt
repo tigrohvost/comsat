@@ -7,22 +7,43 @@ import kotlin.math.roundToInt
 
 // ─── Airport / LiveATC ────────────────────────────────────────────────────────
 
+// One LiveATC Icecast mount (e.g. "kjfk_twr") and the human label from the
+// feed page ("Tower", "App/Dep (118.080)"). Streams go through d.liveatc.net,
+// a Cloudflare-fronted dispatcher that 302-redirects to the active Icecast
+// server. Always HTTPS: some mobile carriers silently drop plain-HTTP requests
+// to that host.
+data class AtcFeed(
+    val mount: String,
+    val label: String
+) {
+    val streamUrl: String get() = "https://d.liveatc.net/$mount"
+}
+
 data class Airport(
     val icao: String,
     val name: String,
     val city: String,
     val country: String,
     val region: String,
-    val feedId: String,
+    // Preferred feed first; the status probe walks this list until one answers.
+    val feeds: List<AtcFeed>,
     val lat: Float = 0f,
     val lon: Float = 0f,
-    val isOnline: Boolean = false
+    // Set by the status probe: the first feed that is actually streaming.
+    val activeFeed: AtcFeed? = null,
+    // False until the probe has looked at this airport, so the UI can tell
+    // "not checked yet" from "checked, nothing streaming".
+    val probed: Boolean = false
 ) {
-    // d.liveatc.net is a Cloudflare-fronted dispatcher that 302-redirects to the active
-    // Icecast server (e.g. https://s1-bos.liveatc.net/{feedId}?nocache=...).
-    // Always HTTPS: some mobile carriers silently drop plain-HTTP requests to this
-    // host (request sent, no reply until timeout) while HTTPS goes through.
-    val streamUrl: String get() = "https://d.liveatc.net/$feedId"
+    init {
+        require(feeds.isNotEmpty()) { "$icao has no feeds" }
+    }
+
+    val isOnline: Boolean get() = activeFeed != null
+
+    // What to play: the feed the probe confirmed, else the preferred one.
+    val feed: AtcFeed get() = activeFeed ?: feeds.first()
+    val streamUrl: String get() = feed.streamUrl
 }
 
 // ─── Soma.fm ──────────────────────────────────────────────────────────────────

@@ -41,7 +41,6 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.comsat.audio.BuildConfig
 import com.comsat.audio.data.model.StreamState
-import com.comsat.audio.data.repository.AIRPORT_CATALOG
 import com.comsat.audio.ui.components.AtisReadout
 import com.comsat.audio.ui.components.AvionicsModule
 import com.comsat.audio.ui.components.FooterPlacard
@@ -77,6 +76,7 @@ fun MainScreen(
     val somaSpectrum by viewModel.somaSpectrum.collectAsState()
     val atisData     by viewModel.atisData.collectAsState()
     val netOnline    by viewModel.networkOnline.collectAsState()
+    val airports     by viewModel.airports.collectAsState()
 
     Box(
         modifier = Modifier
@@ -84,7 +84,7 @@ fun MainScreen(
             .background(MaterialTheme.colorScheme.background)
     ) {
         WorldMapBackground(
-            airports = AIRPORT_CATALOG,
+            airports = airports,
             selectedIcao = airport?.icao,
             modifier = Modifier.fillMaxSize()
         )
@@ -114,7 +114,7 @@ fun MainScreen(
                     StreamModuleBody(
                         sourceName = airport?.let { "${it.icao} · ${it.name.uppercase()}" }
                             ?: "NO AIRPORT SELECTED",
-                        subLabel = airport?.let { "${it.city}, ${it.country} — TOWER".uppercase() },
+                        subLabel = airport?.let { "${it.city}, ${it.country} — ${it.feed.label}".uppercase() },
                         state = atcState,
                         spectrum = atcSpectrum,
                         volume = atcVolume,
