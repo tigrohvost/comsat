@@ -90,8 +90,18 @@ fun AirportListScreen(
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.weight(1f)
             )
-            IconButton(onClick = { viewModel.loadAirports() }) {
-                Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = MaterialTheme.colorScheme.primary)
+            // The bundled catalog is always available, so the status sweep only
+            // spins the refresh slot instead of hiding the list.
+            IconButton(onClick = { viewModel.loadAirports() }, enabled = !loading) {
+                if (loading) {
+                    CircularProgressIndicator(
+                        color = MaterialTheme.colorScheme.primary,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(20.dp)
+                    )
+                } else {
+                    Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = MaterialTheme.colorScheme.primary)
+                }
             }
         }
 
@@ -105,11 +115,7 @@ fun AirportListScreen(
                 .padding(horizontal = 16.dp)
         )
 
-        if (loading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-            }
-        } else if (filtered.isEmpty()) {
+        if (filtered.isEmpty()) {
             EmptyListMessage(if (query.isBlank()) "NO AIRPORTS" else "NO MATCHES")
         } else {
             LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
@@ -153,7 +159,7 @@ private fun AirportRow(airport: Airport, isSelected: Boolean, onClick: () -> Uni
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        OnlineDot(airport.isOnline, modifier = Modifier.padding(top = 2.dp))
+        OnlineDot(if (airport.probed) airport.isOnline else null, modifier = Modifier.padding(top = 2.dp))
 
         Column(modifier = Modifier.weight(1f)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -176,7 +182,7 @@ private fun AirportRow(airport: Airport, isSelected: Boolean, onClick: () -> Uni
             )
         }
 
-        if (!airport.isOnline) {
+        if (airport.probed && !airport.isOnline) {
             Text(
                 text = "OFFLINE",
                 style = MaterialTheme.typography.labelSmall,

@@ -56,16 +56,20 @@ fun Modifier.glowEffect(color: Color, radius: Dp = 6.dp): Modifier = drawBehind 
 
 // ─── Online indicator dot (for airport/station lists) ─────────────────────────
 
+// isOnline == null: status not checked yet (neutral, unlit).
 @Composable
-fun OnlineDot(isOnline: Boolean, modifier: Modifier = Modifier) {
-    val color = if (isOnline) MaterialTheme.colorScheme.tertiary
-    else MaterialTheme.colorScheme.error
+fun OnlineDot(isOnline: Boolean?, modifier: Modifier = Modifier) {
+    val color = when (isOnline) {
+        true -> MaterialTheme.colorScheme.tertiary
+        false -> MaterialTheme.colorScheme.error
+        null -> MaterialTheme.colorScheme.outline
+    }
     Box(
         modifier = modifier
             .size(6.dp)
             .clip(CircleShape)
             .background(color)
-            .let { if (isOnline) it.glowEffect(color, 4.dp) else it }
+            .let { if (isOnline == true) it.glowEffect(color, 4.dp) else it }
     )
 }
 
