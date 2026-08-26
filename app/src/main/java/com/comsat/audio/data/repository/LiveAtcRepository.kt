@@ -18,12 +18,11 @@ import javax.inject.Singleton
 class LiveAtcRepository @Inject constructor(
     okHttpClient: OkHttpClient
 ) {
-    // LiveATC's Icecast servers answer a lone request in ~1 s but occasionally hold
-    // the response headers for ~6 s, and with 20+ simultaneous connections from one
-    // IP every response slips to ~5 s. A 5 s read timeout therefore marked nearly
-    // the whole catalog offline on every launch. Keep the timeout generous and cap
-    // concurrency instead: 404s come back in under a second, so a serialized sweep
-    // of the catalog still finishes in a few seconds.
+    // LiveATC's Icecast servers usually answer in ~1 s but hold the response
+    // headers for up to ~9 s when busy, so the read timeout has to be generous.
+    // Concurrency is capped to keep the sweep polite: 36 simultaneous stream
+    // connections from one IP is exactly the pattern LiveATC rate-limits, and
+    // a 404 for a dead mount comes back in well under a second anyway.
     private val checkClient: OkHttpClient = okHttpClient.newBuilder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
