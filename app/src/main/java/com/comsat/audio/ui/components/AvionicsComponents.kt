@@ -50,6 +50,9 @@ fun AvionicsModule(
     status: StreamStatus,
     accent: Color,
     modifier: Modifier = Modifier,
+    // When the module itself is given a height (e.g. a Column weight), let the
+    // body fill it so a weighted child inside — the spectrum — can stretch.
+    fillHeight: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val outline = MaterialTheme.colorScheme.outline
@@ -77,7 +80,9 @@ fun AvionicsModule(
         }
         HorizontalDivider(color = outline)
         Column(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp),
+            modifier = Modifier
+                .then(if (fillHeight) Modifier.weight(1f) else Modifier)
+                .padding(horizontal = 14.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
             content = content
         )

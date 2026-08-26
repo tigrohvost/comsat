@@ -5,7 +5,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -73,14 +75,17 @@ fun SpectrumBar(
     val screenBg = MaterialTheme.colorScheme.background.copy(alpha = 0.6f)
     val outline = MaterialTheme.colorScheme.outline
 
+    // Height is the caller's call: a fixed .height() or a Column weight so the
+    // bar absorbs whatever is left on screen. Unconstrained, it falls back to
+    // 64 dp and never collapses below 40 dp.
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(64.dp)
+            .defaultMinSize(minHeight = 40.dp)
             .border(1.dp, outline)
             .background(screenBg)
     ) {
-        Canvas(Modifier.fillMaxWidth().height(64.dp)) {
+        Canvas(Modifier.fillMaxWidth().heightIn(min = 64.dp).fillMaxHeight()) {
             @Suppress("UNUSED_EXPRESSION") frame  // invalidate on every physics tick
             val n = levels.size
             val bw = size.width / n

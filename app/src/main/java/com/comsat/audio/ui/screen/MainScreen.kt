@@ -4,18 +4,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.DarkMode
@@ -37,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -95,12 +94,12 @@ fun MainScreen(
                 .windowInsetsPadding(WindowInsets.safeDrawing)
                 .padding(horizontal = 16.dp, vertical = 16.dp)
         ) {
-            // Content takes the leftover height and scrolls when it doesn't fit,
-            // so the footer below keeps its intrinsic size on any screen.
+            // The panel never scrolls: header and footer keep their intrinsic
+            // size, the two modules split whatever is left, and inside each
+            // module the spectrum absorbs the slack. Text that can vary in
+            // length is capped so it cannot push the layout off screen.
             Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState()),
+                modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 PanelHeader()
@@ -108,7 +107,9 @@ fun MainScreen(
                 AvionicsModule(
                     title = "COMM 1 · ATC",
                     status = atcState.status,
-                    accent = MaterialTheme.colorScheme.primary
+                    accent = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f),
+                    fillHeight = true
                 ) {
                     StreamModuleBody(
                         sourceName = airport?.let { "${it.icao} · ${it.name.uppercase()}" }
@@ -133,7 +134,9 @@ fun MainScreen(
                 AvionicsModule(
                     title = "COMM 2 · AMBIENT",
                     status = somaState.status,
-                    accent = MaterialTheme.colorScheme.tertiary
+                    accent = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.weight(1f),
+                    fillHeight = true
                 ) {
                     StreamModuleBody(
                         sourceName = station?.title?.uppercase() ?: "NO STATION SELECTED",
@@ -264,7 +267,7 @@ private fun ThemeMenuButton() {
 // ─── Stream module body: name, spectrum, fader, transport ─────────────────────
 
 @Composable
-private fun StreamModuleBody(
+private fun ColumnScope.StreamModuleBody(
     sourceName: String,
     subLabel: String?,
     state: StreamState,
@@ -286,13 +289,17 @@ private fun StreamModuleBody(
             Text(
                 text = sourceName,
                 style = MaterialTheme.typography.titleLarge.copy(fontSize = 17.sp),
-                color = accent
+                color = accent,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
             )
             if (subLabel != null) {
                 Text(
                     text = subLabel,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
@@ -304,7 +311,8 @@ private fun StreamModuleBody(
         bands = spectrum,
         active = state.isActive,
         volume = volume,
-        accent = accent
+        accent = accent,
+        modifier = Modifier.weight(1f)
     )
 
     // Fader with digital readout
@@ -350,7 +358,9 @@ private fun StreamModuleBody(
         Text(
             text = "ERR: ${state.error}",
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.error
+            color = MaterialTheme.colorScheme.error,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
