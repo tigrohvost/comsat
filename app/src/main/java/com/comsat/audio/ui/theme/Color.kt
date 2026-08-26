@@ -28,6 +28,9 @@ val SurfaceVarDay  = Color(0xFFE4EAFF)
 val OutlineDay     = Color(0xFFB8C4D8)
 val CyanDay        = Color(0xFF0077A8)
 val MagentaDay     = Color(0xFF990099)
+// Day-mode tertiary: GreenNeon is unreadable on white; this keeps the hue at
+// ~5.5:1 contrast on white, on par with CyanDay.
+val GreenDay       = Color(0xFF00784D)
 val TextPrimaryDay = Color(0xFF080B1A)
 val TextSecDay     = Color(0xFF4A5680)
 
