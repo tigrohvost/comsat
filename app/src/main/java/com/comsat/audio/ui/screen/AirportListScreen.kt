@@ -26,6 +26,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +52,9 @@ fun AirportListScreen(
     val selected  by viewModel.selectedAirport.collectAsState()
 
     var query by rememberSaveable { mutableStateOf("") }
+
+    // Probe on open, but only what the status cache does not already cover.
+    LaunchedEffect(Unit) { viewModel.ensureAirportsProbed() }
 
     val filtered = airports
         .filter { a ->
@@ -92,7 +96,7 @@ fun AirportListScreen(
             )
             // The bundled catalog is always available, so the status sweep only
             // spins the refresh slot instead of hiding the list.
-            IconButton(onClick = { viewModel.loadAirports() }, enabled = !loading) {
+            IconButton(onClick = { viewModel.loadAirports(force = true) }, enabled = !loading) {
                 if (loading) {
                     CircularProgressIndicator(
                         color = MaterialTheme.colorScheme.primary,

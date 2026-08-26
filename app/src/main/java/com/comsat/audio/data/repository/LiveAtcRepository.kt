@@ -20,7 +20,8 @@ import javax.inject.Singleton
 @Singleton
 class LiveAtcRepository @Inject constructor(
     okHttpClient: OkHttpClient,
-    private val catalog: AirportCatalog
+    private val catalog: AirportCatalog,
+    private val statusCache: AtcStatusCache
 ) {
     // LiveATC's Icecast servers usually answer in ~1 s but hold the response
     // headers for up to ~9 s when busy, so the read timeout has to be generous.
@@ -34,13 +35,61 @@ class LiveAtcRepository @Inject constructor(
 
     private val probeSlots = Semaphore(MAX_CONCURRENT_PROBES)
 
-    suspend fun getAirportsWithStatus(): List<Airport> = withContext(Dispatchers.IO) {
-        catalog.airports.map { airport ->
-            async {
+    // Catalog with whatever the cache still knows — no network at all.
+    suspend fun getAirportsFromCache(): List<Airport> {
+        val cache = statusCache.load()
+        val now = System.currentTimeMillis()
+        return catalog.airports.map { airport -> airport.applyCached(cache[airport.icao], now) }
+    }
+
+    // Status for the whole catalog. Airports with a fresh cache entry are not
+    // touched on the network unless [force]; the rest are probed and cached.
+    suspend fun getAirportsWithStatus(force: Boolean = false): List<Airport> =
+        withContext(Dispatchers.IO) {
+            val cache = statusCache.load()
+            val now = System.currentTimeMillis()
+            val fresh = mutableMapOf<String, AtcStatusEntry>()
+            val result = catalog.airports.map { airport ->
+                async {
+                    val cached = cache[airport.icao]
+                    if (!force && cached != null && cached.isFresh(now)) {
+                        airport.applyCached(cached, now)
+                    } else {
+                        val live = probeSlots.withPermit { findLiveFeed(airport.feeds) }
+                        synchronized(fresh) {
+                            fresh[airport.icao] = AtcStatusEntry(live?.mount, System.currentTimeMillis())
+                        }
+                        airport.copy(activeFeed = live, probed = true)
+                    }
+                }
+            }.awaitAll()
+            statusCache.update(fresh)
+            result
+        }
+
+    // Status for one airport — what selection and launch need. Cheap when the
+    // cache is fresh; otherwise a handful of requests for this airport only.
+    suspend fun probeAirport(airport: Airport, force: Boolean = false): Airport =
+        withContext(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            val cached = statusCache.load()[airport.icao]
+            if (!force && cached != null && cached.isFresh(now)) {
+                airport.applyCached(cached, now)
+            } else {
                 val live = probeSlots.withPermit { findLiveFeed(airport.feeds) }
+                statusCache.update(
+                    mapOf(airport.icao to AtcStatusEntry(live?.mount, System.currentTimeMillis()))
+                )
                 airport.copy(activeFeed = live, probed = true)
             }
-        }.awaitAll()
+        }
+
+    private fun Airport.applyCached(entry: AtcStatusEntry?, now: Long): Airport {
+        if (entry == null || !entry.isFresh(now)) return this
+        val feed = entry.mount?.let { m -> feeds.find { it.mount == m } }
+        // A cached mount that no longer exists in the catalog counts as unknown.
+        return if (entry.mount != null && feed == null) this
+        else copy(activeFeed = feed, probed = true)
     }
 
     // Walk the preferred feeds in order and return the first one that streams.

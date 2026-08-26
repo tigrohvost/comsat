@@ -20,6 +20,9 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object AppModule {
 
+    const val USER_AGENT =
+        "COMSAT/${BuildConfig.VERSION_NAME} (Android; +https://github.com/tigrohvost/comsat)"
+
     @Provides
     @Singleton
     fun provideOkHttpClient(): OkHttpClient =
@@ -36,6 +39,15 @@ object AppModule {
             // h2, and the extra TLS handshakes are negligible.
             .connectionPool(ConnectionPool(0, 1, TimeUnit.SECONDS))
             .protocols(listOf(Protocol.HTTP_1_1))
+            // Identify ourselves to LiveATC/SomaFM instead of "okhttp/x.y"; a
+            // named client with a contact URL is easier to whitelist than to ban.
+            .addInterceptor { chain ->
+                chain.proceed(
+                    chain.request().newBuilder()
+                        .header("User-Agent", USER_AGENT)
+                        .build()
+                )
+            }
             .apply {
                 // Logs stream URLs; keep out of release builds. Network-level so
                 // every hop shows up, including the d.liveatc.net 302 that

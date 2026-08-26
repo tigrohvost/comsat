@@ -166,7 +166,7 @@ class MainViewModel @Inject constructor(
     init {
         bindService()
         restoreSettings()
-        loadAirports()
+        applyCachedAirportStatus()
         loadStations()
         observeAtis()
         registerNetworkCallback()
@@ -208,26 +208,55 @@ class MainViewModel @Inject constructor(
 
     // ─── Actions ──────────────────────────────────────────────────────────────
 
-    fun loadAirports() {
+    // Launch never sweeps the whole catalog: that is 36+ stream connections
+    // to LiveATC every time the app opens, the pattern that gets an IP
+    // rate-limited. Show what the cache still knows and probe only the
+    // airport that is actually about to play.
+    private fun applyCachedAirportStatus() {
         viewModelScope.launch {
+            runCatching { liveAtcRepo.getAirportsFromCache() }
+                .getOrNull()?.let { _airports.value = it }
+        }
+    }
+
+    private var airportsJob: Job? = null
+
+    // Full sweep. force = false only probes airports whose cached status has
+    // expired; the refresh button passes force = true.
+    fun loadAirports(force: Boolean = false) {
+        if (airportsJob?.isActive == true) return
+        airportsJob = viewModelScope.launch {
             _airportsLoading.value = true
             try {
-                val probed = liveAtcRepo.getAirportsWithStatus()
-                _airports.value = probed
-                // Keep the selection in step so its label/feed reflect the probe,
-                // without touching whatever is already playing.
-                _selectedAirport.value?.let { sel ->
-                    probed.find { it.icao == sel.icao }?.let { _selectedAirport.value = it }
-                }
+                updateAirports(liveAtcRepo.getAirportsWithStatus(force))
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 // The catalog itself is bundled; only online probes are lost.
-                _airports.value = airportCatalog.airports
             } finally {
                 _airportsLoading.value = false
             }
         }
+    }
+
+    // Called when the airport list opens: cheap if the cache is fresh.
+    fun ensureAirportsProbed() {
+        if (_airports.value.all { it.probed }) return
+        loadAirports(force = false)
+    }
+
+    private fun updateAirports(probed: List<Airport>) {
+        _airports.value = probed
+        // Keep the selection in step so its label/feed reflect the probe,
+        // without touching whatever is already playing.
+        _selectedAirport.value?.let { sel ->
+            probed.find { it.icao == sel.icao }?.let { _selectedAirport.value = it }
+        }
+    }
+
+    private fun updateAirport(probed: Airport) {
+        _airports.value = _airports.value.map { if (it.icao == probed.icao) probed else it }
+        if (_selectedAirport.value?.icao == probed.icao) _selectedAirport.value = probed
     }
 
     fun loadStations() {
@@ -288,17 +317,29 @@ class MainViewModel @Inject constructor(
         else -> "STATION LIST UNAVAILABLE"
     }
 
+    private var selectJob: Job? = null
+
     fun selectAirport(airport: Airport) {
-        // Prefer the probed copy: it knows which feed is actually streaming.
-        val resolved = _airports.value.find { it.icao == airport.icao && it.isOnline } ?: airport
-        _selectedAirport.value = resolved
-        viewModelScope.launch { settingsRepo.setAirport(resolved.icao) }
+        _selectedAirport.value = airport
+        selectJob?.cancel()
+        selectJob = viewModelScope.launch {
+            settingsRepo.setAirport(airport.icao)
+            // Find out which feed is streaming before starting playback, so a
+            // dead preferred mount does not put the player into an error loop.
+            // Instant when the status cache is fresh; a second or two otherwise.
+            val resolved = runCatching { liveAtcRepo.probeAirport(airport) }.getOrDefault(airport)
+            updateAirport(resolved)
+            playAtc(resolved)
+        }
+    }
+
+    private fun playAtc(airport: Airport) {
         val ctx = getApplication<Application>()
         ctx.startService(Intent(ctx, AudioService::class.java))
-        val label = "${resolved.icao} ${resolved.name}"
+        val label = "${airport.icao} ${airport.name}"
         val svc = audioService
-        if (svc != null) svc.playAtc(resolved.streamUrl, label)
-        else pendingAtc = resolved.streamUrl to label
+        if (svc != null) svc.playAtc(airport.streamUrl, label)
+        else pendingAtc = airport.streamUrl to label
     }
 
     fun toggleAtcPlayback() {
