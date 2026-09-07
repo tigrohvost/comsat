@@ -1,6 +1,8 @@
 package com.comsat.audio.smoke
 
 import android.content.pm.ApplicationInfo
+import android.net.ConnectivityManager
+import android.os.SystemClock
 import android.view.KeyEvent
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -12,6 +14,7 @@ import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
 import org.junit.After
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -41,6 +44,7 @@ class ReleaseSmokeTest {
         Configurator.getInstance().waitForIdleTimeout = 0
         device.setOrientationNatural()
         device.executeShellCommand("pm grant $TARGET_PACKAGE android.permission.POST_NOTIFICATIONS")
+        disableNetwork()
         launchPanel()
         screenshot("panel-nordic")
 
@@ -100,6 +104,23 @@ class ReleaseSmokeTest {
         screenshot("large-text-atc")
         scrollTo(By.desc("Play ambient"))
         screenshot("large-text-ambient")
+        assertNull("Emulator reconnected during the offline test", connectivity.activeNetwork)
+    }
+
+    private val connectivity: ConnectivityManager
+        get() = context.getSystemService(ConnectivityManager::class.java)
+
+    private fun disableNetwork() {
+        // Early boot can restore Wi-Fi after the host script disabled it.
+        // Enforce isolation again immediately before launching the real APK.
+        device.executeShellCommand("cmd connectivity airplane-mode enable")
+        device.executeShellCommand("svc wifi disable")
+        device.executeShellCommand("svc data disable")
+        val deadline = SystemClock.uptimeMillis() + 10_000
+        while (connectivity.activeNetwork != null && SystemClock.uptimeMillis() < deadline) {
+            Thread.sleep(100)
+        }
+        assertNull("Offline smoke test requires a disconnected emulator", connectivity.activeNetwork)
     }
 
     private fun launchPanel() {

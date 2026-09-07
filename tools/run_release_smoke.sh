@@ -11,6 +11,7 @@ collect_diagnostics() {
 }
 trap collect_diagnostics EXIT
 
+adb shell cmd connectivity airplane-mode enable
 adb shell svc wifi disable
 adb shell svc data disable
 ./gradlew -Pcomsat.testBuildType=release :smoke:connectedReleaseAndroidTest --stacktrace
