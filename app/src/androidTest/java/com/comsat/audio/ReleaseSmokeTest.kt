@@ -90,14 +90,14 @@ class ReleaseSmokeTest {
 
         // Both controls remain reachable after rotation and with large fonts.
         device.setOrientationLeft()
-        scrollTo(By.desc("Play ATC"), down = false)
+        scrollTo(By.desc("Play ATC"))
         screenshot("landscape-atc")
         scrollTo(By.desc("Play ambient"))
         screenshot("landscape-ambient")
         device.setOrientationNatural()
         device.executeShellCommand("settings put system font_scale 1.5")
         launchPanel()
-        scrollTo(By.desc("Play ATC"), down = false)
+        scrollTo(By.desc("Play ATC"))
         screenshot("large-text-atc")
         scrollTo(By.desc("Play ambient"))
         screenshot("large-text-ambient")
