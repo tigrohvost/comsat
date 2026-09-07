@@ -6,12 +6,13 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
 import com.comsat.audio.data.repository.SettingsRepository
@@ -33,7 +34,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        WindowCompat.enableEdgeToEdge(window)
         requestNotificationPermissionIfNeeded()
         setContent {
             val themeModeFlow = remember(settingsRepo) {
@@ -41,6 +42,13 @@ class MainActivity : ComponentActivity() {
             }
             val themeMode by themeModeFlow
                 .collectAsState(initial = ThemeMode.NORDIC)
+            LaunchedEffect(themeMode) {
+                // The app theme is independent of Android's system theme.
+                WindowCompat.getInsetsController(window, window.decorView).apply {
+                    isAppearanceLightStatusBars = themeMode == ThemeMode.LIGHT
+                    isAppearanceLightNavigationBars = themeMode == ThemeMode.LIGHT
+                }
+            }
             ComsatTheme(
                 mode = themeMode,
                 onSetTheme = { mode -> lifecycleScope.launch { settingsRepo.setTheme(mode) } }

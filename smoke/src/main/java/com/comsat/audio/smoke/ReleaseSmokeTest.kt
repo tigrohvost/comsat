@@ -80,14 +80,12 @@ class ReleaseSmokeTest {
         launchPanel()
         visible(By.textContains("KJFK"))
         scrollTo(By.text("RAIN RADIO"))
-        scrollTo(By.desc("Select theme"), down = false).click()
-        visible(By.text("LIGHT")).click()
+        selectTheme("LIGHT")
         screenshot("panel-light")
-        visible(By.desc("Select theme")).click()
-        visible(By.text("DARK")).click()
+        selectTheme("DARK")
         screenshot("panel-dark")
-        visible(By.desc("Select theme")).click()
-        visible(By.text("NORDIC")).click()
+        selectTheme("NORDIC")
+        screenshot("panel-nordic-selected")
 
         // Both controls remain reachable after rotation and with large fonts.
         device.setOrientationLeft()
@@ -113,6 +111,13 @@ class ReleaseSmokeTest {
         requireNotNull(device.wait(Until.findObject(selector), 20_000)) {
             "Missing UI element: $selector"
         }
+
+    private fun selectTheme(name: String) {
+        scrollTo(By.descStartsWith("Select theme:"), down = false).click()
+        visible(By.text(name)).click()
+        visible(By.desc("Select theme: $name"))
+        assertTrue("Theme menu did not close", device.wait(Until.gone(By.text(name)), 5_000))
+    }
 
     private fun scrollTo(selector: BySelector, down: Boolean = true): UiObject2 {
         repeat(10) {

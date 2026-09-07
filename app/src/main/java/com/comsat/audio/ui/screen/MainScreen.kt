@@ -253,7 +253,7 @@ private fun ThemeMenuButton() {
         IconButton(onClick = { expanded = true }) {
             Icon(
                 imageVector = currentIcon,
-                contentDescription = "Select theme",
+                contentDescription = "Select theme: ${themeMode.name}",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
