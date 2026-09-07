@@ -35,6 +35,7 @@ androidComponents {
 }
 
 dependencies {
+    implementation(libs.androidx.test.runner)
     implementation(libs.androidx.junit)
     implementation(libs.androidx.uiautomator)
 }
