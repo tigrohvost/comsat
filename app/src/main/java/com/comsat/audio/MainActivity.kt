@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -34,7 +35,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        WindowCompat.enableEdgeToEdge(window)
+        // Keep Android's contrast protection for three-button navigation.
+        enableEdgeToEdge()
         requestNotificationPermissionIfNeeded()
         setContent {
             val themeModeFlow = remember(settingsRepo) {
@@ -46,7 +48,6 @@ class MainActivity : ComponentActivity() {
                 // The app theme is independent of Android's system theme.
                 WindowCompat.getInsetsController(window, window.decorView).apply {
                     isAppearanceLightStatusBars = themeMode == ThemeMode.LIGHT
-                    isAppearanceLightNavigationBars = themeMode == ThemeMode.LIGHT
                 }
             }
             ComsatTheme(
