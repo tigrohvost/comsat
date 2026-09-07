@@ -2,6 +2,7 @@ package com.comsat.audio
 
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.view.KeyEvent
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
@@ -46,9 +47,12 @@ class ReleaseSmokeTest {
         // No source selected: Play should open the selector, not do nothing.
         visible(By.desc("Choose airport")).click()
         visible(By.text("SELECT AIRPORT"))
-        visible(By.desc("ICAO / city / country")).text = "KJFK"
+        visible(By.desc("ICAO / city / country")).apply {
+            click()
+            text = "KJFK"
+        }
         visible(By.desc("Clear search"))
-        device.pressBack() // dismiss keyboard
+        device.pressKeyCode(KeyEvent.KEYCODE_ENTER) // submit search and dismiss keyboard
         visible(By.textContains("John F. Kennedy Intl")).click()
         scrollTo(By.desc("Pause ATC"), down = false).click()
         visible(By.desc("Play ATC"))
@@ -58,10 +62,13 @@ class ReleaseSmokeTest {
         visible(By.textContains("Rain Radio"))
         visible(By.text("RETRY")) // directory failure must remain visible with fallback data
         screenshot("stations-offline")
-        visible(By.desc("station / genre")).text = "no-such-station"
+        visible(By.desc("station / genre")).apply {
+            click()
+            text = "no-such-station"
+        }
         visible(By.text("NO MATCHES"))
         visible(By.desc("Clear search")).click()
-        device.pressBack() // dismiss keyboard
+        device.pressKeyCode(KeyEvent.KEYCODE_ENTER)
         visible(By.textContains("Rain Radio")).click()
         scrollTo(By.desc("Pause ambient")).click()
         visible(By.desc("Play ambient"))

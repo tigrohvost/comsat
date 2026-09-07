@@ -85,7 +85,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Launch and exercise the minified release offline
-        uses: ReactiveCircus/android-emulator-runner@ed009f5318f15b1cf93a191b856c4f1748a2d4c1
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         env:
           COMSAT_KEYSTORE_PASSWORD: ${{ secrets.COMSAT_KEYSTORE_PASSWORD }}
           COMSAT_KEY_ALIAS: comsat
