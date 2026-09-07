@@ -34,6 +34,6 @@ class SomaFmRepository @Inject constructor(
     }
 
     private companion object {
-        const val RAIN_RADIO_BASE = "http://192.144.15.152:8788"
+        const val RAIN_RADIO_BASE = "https://rain-radio.192-144-15-152.sslip.io"
     }
 }

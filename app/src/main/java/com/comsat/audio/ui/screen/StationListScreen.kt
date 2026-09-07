@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -37,7 +38,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
@@ -82,47 +82,59 @@ fun StationListScreen(
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
-                    tint = MaterialTheme.colorScheme.secondary
+                    tint = MaterialTheme.colorScheme.tertiary
                 )
             }
             Text(
                 text = "SELECT STATION",
                 style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.secondary
+                color = MaterialTheme.colorScheme.tertiary,
+                modifier = Modifier.weight(1f)
             )
+            IconButton(onClick = viewModel::loadStations, enabled = !loading) {
+                if (loading) {
+                    CircularProgressIndicator(
+                        color = MaterialTheme.colorScheme.tertiary,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(20.dp)
+                    )
+                } else {
+                    Icon(Icons.Default.Refresh, contentDescription = "Refresh stations",
+                        tint = MaterialTheme.colorScheme.tertiary)
+                }
+            }
         }
 
         ComsatSearchField(
             query = query,
             onQueryChange = { query = it },
             placeholder = "station / genre",
-            accentColor = MaterialTheme.colorScheme.secondary,
+            accentColor = MaterialTheme.colorScheme.tertiary,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
         )
 
-        if (loading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = MaterialTheme.colorScheme.secondary)
-            }
-        } else if (error != null && stations.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "ERR: $error",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.error,
-                        textAlign = TextAlign.Center
-                    )
-                    TextButton(onClick = { viewModel.loadStations() }) {
-                        Text(
-                            text = "RETRY",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.secondary
-                        )
-                    }
+        if (error != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = error.orEmpty(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = viewModel::loadStations, enabled = !loading) {
+                    Text("RETRY", color = MaterialTheme.colorScheme.tertiary)
                 }
+            }
+        }
+
+        if (loading && stations.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.tertiary)
             }
         } else if (filtered.isEmpty()) {
             EmptyListMessage(if (query.isBlank()) "NO STATIONS" else "NO MATCHES")
@@ -152,14 +164,14 @@ fun StationListScreen(
 
 @Composable
 private fun StationCard(station: SomaStation, isSelected: Boolean, onClick: () -> Unit) {
-    val accentColor = if (isSelected) MaterialTheme.colorScheme.secondary
+    val accentColor = if (isSelected) MaterialTheme.colorScheme.tertiary
     else MaterialTheme.colorScheme.outline
 
     Box(
         modifier = Modifier
             .border(1.dp, accentColor.copy(alpha = 0.7f))
             .background(
-                if (isSelected) MaterialTheme.colorScheme.secondary.copy(alpha = 0.08f)
+                if (isSelected) MaterialTheme.colorScheme.tertiary.copy(alpha = 0.08f)
                 else MaterialTheme.colorScheme.surface
             )
             .clickable(onClick = onClick)
@@ -189,7 +201,7 @@ private fun StationCard(station: SomaStation, isSelected: Boolean, onClick: () -
                     Text(
                         text = station.title,
                         style = MaterialTheme.typography.titleMedium,
-                        color = if (isSelected) MaterialTheme.colorScheme.secondary
+                        color = if (isSelected) MaterialTheme.colorScheme.tertiary
                         else MaterialTheme.colorScheme.onSurface
                     )
                     Text(

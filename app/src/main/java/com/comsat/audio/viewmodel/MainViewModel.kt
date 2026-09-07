@@ -15,6 +15,7 @@ import com.comsat.audio.data.model.Airport
 import com.comsat.audio.data.model.AtisData
 import com.comsat.audio.data.model.SomaStation
 import com.comsat.audio.data.model.StreamState
+import com.comsat.audio.data.model.StreamStatus
 import com.comsat.audio.data.repository.AirportCatalog
 import com.comsat.audio.data.repository.LiveAtcRepository
 import com.comsat.audio.data.repository.MetarRepository
@@ -25,10 +26,17 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -52,11 +60,14 @@ class MainViewModel @Inject constructor(
 
     // ─── Service binding ──────────────────────────────────────────────────────
 
-    val atcState: StateFlow<StreamState> get() = _atcState
     val somaState: StateFlow<StreamState> get() = _somaState
 
     private val _atcState = MutableStateFlow(StreamState())
     private val _somaState = MutableStateFlow(StreamState())
+    private val atcTuning = MutableStateFlow(false)
+    val atcState: StateFlow<StreamState> = combine(_atcState, atcTuning) { state, tuning ->
+        if (tuning) StreamState(StreamStatus.LOADING) else state
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, StreamState())
 
     private val _somaNowPlaying = MutableStateFlow<String?>(null)
     val somaNowPlaying: StateFlow<String?> = _somaNowPlaying
@@ -138,7 +149,7 @@ class MainViewModel @Inject constructor(
 
     // ─── Station state ────────────────────────────────────────────────────────
 
-    private val _stations = MutableStateFlow<List<SomaStation>>(emptyList())
+    private val _stations = MutableStateFlow(somaRepo.customStations)
     val stations: StateFlow<List<SomaStation>> = _stations
 
     private val _stationsLoading = MutableStateFlow(false)
@@ -162,6 +173,7 @@ class MainViewModel @Inject constructor(
 
     private var restoredStationId: String? = null
     private var persistVolumesJob: Job? = null
+    private var stationsJob: Job? = null
 
     init {
         bindService()
@@ -260,7 +272,8 @@ class MainViewModel @Inject constructor(
     }
 
     fun loadStations() {
-        viewModelScope.launch {
+        if (stationsJob?.isActive == true) return
+        stationsJob = viewModelScope.launch {
             _stationsLoading.value = true
             _stationsError.value = null
             try {
@@ -271,7 +284,8 @@ class MainViewModel @Inject constructor(
             } catch (e: Exception) {
                 // Rain's own stations don't depend on the SomaFM API — keep
                 // them selectable even when the directory is down.
-                _stations.value = somaRepo.customStations
+                // Keep the last directory during a temporary outage.
+                if (_stations.value.isEmpty()) _stations.value = somaRepo.customStations
                 applyRestoredStation()
                 _stationsError.value = friendlyLoadError(e)
             } finally {
@@ -284,11 +298,11 @@ class MainViewModel @Inject constructor(
     // Failed fetches keep the last value — collectLatest resets it per airport.
     private fun observeAtis() {
         viewModelScope.launch {
-            _selectedAirport.collectLatest { airport ->
+            _selectedAirport.map { it?.icao }.distinctUntilChanged().collectLatest { icao ->
                 _atisData.value = null
-                if (airport == null) return@collectLatest
+                if (icao == null) return@collectLatest
                 while (true) {
-                    metarRepo.fetchMetar(airport.icao)?.let { _atisData.value = it }
+                    metarRepo.fetchMetar(icao)?.let { _atisData.value = it }
                     delay(10 * 60 * 1000L)
                 }
             }
@@ -318,18 +332,32 @@ class MainViewModel @Inject constructor(
     }
 
     private var selectJob: Job? = null
+    private var atcSelectionGeneration = 0L
 
     fun selectAirport(airport: Airport) {
         _selectedAirport.value = airport
+        viewModelScope.launch { settingsRepo.setAirport(airport.icao) }
         selectJob?.cancel()
+        pendingAtc = null
+        audioService?.stopAtc()
+        val generation = ++atcSelectionGeneration
+        atcTuning.value = true
         selectJob = viewModelScope.launch {
-            settingsRepo.setAirport(airport.icao)
-            // Find out which feed is streaming before starting playback, so a
-            // dead preferred mount does not put the player into an error loop.
-            // Instant when the status cache is fresh; a second or two otherwise.
-            val resolved = runCatching { liveAtcRepo.probeAirport(airport) }.getOrDefault(airport)
-            updateAirport(resolved)
-            playAtc(resolved)
+            try {
+                val resolved = try {
+                    liveAtcRepo.probeAirport(airport)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    airport
+                }
+                currentCoroutineContext().ensureActive()
+                if (generation != atcSelectionGeneration) return@launch
+                updateAirport(resolved)
+                playAtc(resolved)
+            } finally {
+                if (generation == atcSelectionGeneration) atcTuning.value = false
+            }
         }
     }
 
@@ -339,12 +367,21 @@ class MainViewModel @Inject constructor(
         val label = "${airport.icao} ${airport.name}"
         val svc = audioService
         if (svc != null) svc.playAtc(airport.streamUrl, label)
-        else pendingAtc = airport.streamUrl to label
+        else {
+            pendingAtc = airport.streamUrl to label
+            _atcState.value = StreamState(StreamStatus.LOADING)
+        }
     }
 
     fun toggleAtcPlayback() {
-        if (_atcState.value.isActive) audioService?.stopAtc()
-        else _selectedAirport.value?.let { selectAirport(it) }
+        if (atcTuning.value || pendingAtc != null || _atcState.value.canPause) {
+            ++atcSelectionGeneration
+            selectJob?.cancel()
+            pendingAtc = null
+            atcTuning.value = false
+            audioService?.stopAtc()
+            _atcState.value = StreamState()
+        } else _selectedAirport.value?.let { selectAirport(it) }
     }
 
     fun selectStation(station: SomaStation) {
@@ -354,7 +391,10 @@ class MainViewModel @Inject constructor(
         ctx.startService(Intent(ctx, AudioService::class.java))
         val svc = audioService
         if (svc != null) startSoma(svc, station)
-        else pendingSomaStation = station
+        else {
+            pendingSomaStation = station
+            _somaState.value = StreamState(StreamStatus.LOADING)
+        }
     }
 
     private fun startSoma(svc: AudioService, station: SomaStation) {
@@ -366,8 +406,11 @@ class MainViewModel @Inject constructor(
     }
 
     fun toggleSomaPlayback() {
-        if (_somaState.value.isActive) audioService?.stopSoma()
-        else _selectedStation.value?.let { selectStation(it) }
+        if (pendingSomaStation != null || _somaState.value.canPause) {
+            pendingSomaStation = null
+            audioService?.stopSoma()
+            _somaState.value = StreamState()
+        } else _selectedStation.value?.let { selectStation(it) }
     }
 
     fun setAtcVolume(v: Float) {

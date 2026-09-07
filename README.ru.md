@@ -67,6 +67,7 @@ MediaSession; встроены переподключение с задержк�
 
 ```bash
 ./gradlew testDebugUnitTest lintDebug assembleDebug
+./gradlew -Pcomsat.testBuildType=release testReleaseUnitTest lintRelease assembleRelease
 ```
 
 Для подписанной release-сборки передайте keystore через переменные окружения:
@@ -87,18 +88,31 @@ export COMSAT_KEY_PASSWORD='<key password>'
 <details>
 <summary><strong>Публикация релиза</strong></summary>
 
+Чтобы собрать и проверить подписанный APK без публикации релиза, запустите
+**Actions → Android Release → Run workflow** для нужной ветки. Артефакт `COMSAT-…`
+содержит подписанный APK, его SHA-256 и `build-info.json` с коммитом исходников.
+Workflow также запускает минифицированный APK на Android-эмуляторе без сети и
+проверяет выбор источников, остановку воспроизведения, сохранённые настройки,
+темы, горизонтальную ориентацию и крупный шрифт. Скриншоты и отчёты тестов
+загружаются отдельно. Секреты подписи нужны для обоих режимов.
+
 Задайте секреты репозитория `COMSAT_KEYSTORE_BASE64` и
 `COMSAT_KEYSTORE_PASSWORD`, обновите `versionName` / `versionCode`, затем
 отправьте соответствующий семантический тег:
 
 ```bash
-git tag -a v1.2.0 -m "COMSAT 1.2.0"
-git push origin v1.2.0
+git tag -a v1.3.3 -m "COMSAT 1.3.3"
+git push origin v1.3.3
 ```
 
 Release workflow отклоняет тег, который не совпадает с версией приложения.
 Успешный запуск публикует стабильные assets `COMSAT.apk` и
 `COMSAT.apk.sha256`, поэтому ссылка вверху всегда ведёт на последний релиз.
+
+Для такой же проверки локально настройте подпись, запустите отдельный тестовый
+эмулятор и выполните `bash tools/run_release_smoke.sh`. Скрипт отключает Wi-Fi и
+мобильную сеть эмулятора. Обычный CI также тестирует и собирает неподписанный
+release-вариант для каждого pull request и push в `main`.
 
 </details>
 

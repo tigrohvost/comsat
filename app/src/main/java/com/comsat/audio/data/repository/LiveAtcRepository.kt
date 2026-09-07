@@ -2,6 +2,7 @@ package com.comsat.audio.data.repository
 
 import com.comsat.audio.data.model.Airport
 import com.comsat.audio.data.model.AtcFeed
+import com.comsat.audio.data.api.awaitResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -95,7 +96,7 @@ class LiveAtcRepository @Inject constructor(
     // Walk the preferred feeds in order and return the first one that streams.
     // A missing mount (404) or a refused connection is cheap, so move on to the
     // next candidate; a timeout already cost 15 s, so give up on the airport.
-    private fun findLiveFeed(feeds: List<AtcFeed>): AtcFeed? {
+    private suspend fun findLiveFeed(feeds: List<AtcFeed>): AtcFeed? {
         for (feed in feeds.take(MAX_FEEDS_PER_AIRPORT)) {
             when (probe(feed.streamUrl)) {
                 ProbeResult.ONLINE -> return feed
@@ -109,13 +110,13 @@ class LiveAtcRepository @Inject constructor(
     private enum class ProbeResult { ONLINE, SKIP, GIVE_UP }
 
     // Icecast ignores HEAD; use GET and close immediately after reading the response code.
-    private fun probe(streamUrl: String): ProbeResult = try {
+    private suspend fun probe(streamUrl: String): ProbeResult = try {
         val request = Request.Builder()
             .url(streamUrl)
             .addHeader("Icy-MetaData", "1")
             .get()
             .build()
-        checkClient.newCall(request).execute().use { response ->
+        checkClient.newCall(request).awaitResponse().use { response ->
             if (response.code == 200) ProbeResult.ONLINE else ProbeResult.SKIP
         }
     } catch (_: SocketTimeoutException) {

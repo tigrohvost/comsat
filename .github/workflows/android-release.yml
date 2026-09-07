@@ -1,6 +1,7 @@
 name: Android Release
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - "v*.*.*"
@@ -16,17 +17,17 @@ jobs:
   release:
     name: Build signed APK
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
-      - name: Check out tagged sources
+      - name: Check out sources
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Set up JDK 21
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: temurin
           java-version: "21"
@@ -51,10 +52,10 @@ jobs:
         run: |
           set -euo pipefail
           version_name=$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)"/\1/p' app/build.gradle.kts)
-          test "${GITHUB_REF_NAME}" = "v${version_name}" || {
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" != "v${version_name}" ]]; then
             echo "Tag ${GITHUB_REF_NAME} does not match app version ${version_name}" >&2
             exit 1
-          }
+          fi
           test -n "${COMSAT_KEYSTORE_BASE64}" || {
             echo "COMSAT_KEYSTORE_BASE64 is not configured" >&2
             exit 1
@@ -73,37 +74,80 @@ jobs:
           COMSAT_KEYSTORE_PASSWORD: ${{ secrets.COMSAT_KEYSTORE_PASSWORD }}
           COMSAT_KEY_ALIAS: comsat
           COMSAT_KEY_PASSWORD: ${{ secrets.COMSAT_KEYSTORE_PASSWORD }}
-        run: ./gradlew testDebugUnitTest lintDebug assembleRelease --stacktrace
+        run: |
+          ./gradlew testDebugUnitTest --stacktrace
+          ./gradlew -Pcomsat.testBuildType=release testReleaseUnitTest lintRelease assembleRelease assembleReleaseAndroidTest --stacktrace
+
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Launch and exercise the minified release offline
+        uses: ReactiveCircus/android-emulator-runner@ed009f5318f15b1cf93a191b856c4f1748a2d4c1
+        env:
+          COMSAT_KEYSTORE_PASSWORD: ${{ secrets.COMSAT_KEYSTORE_PASSWORD }}
+          COMSAT_KEY_ALIAS: comsat
+          COMSAT_KEY_PASSWORD: ${{ secrets.COMSAT_KEYSTORE_PASSWORD }}
+        with:
+          api-level: 35
+          arch: x86_64
+          target: default
+          profile: pixel_2
+          disable-animations: true
+          script: bash tools/run_release_smoke.sh
+
+      - name: Upload release verification reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-verification-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/outputs/androidTest-results/
+            app/build/outputs/mapping/release/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Verify and package APK
         run: |
           set -euo pipefail
           mkdir -p release
           cp app/build/outputs/apk/release/app-release.apk release/COMSAT.apk
-          apksigner_path=$(find "${ANDROID_HOME}/build-tools" -type f -name apksigner | sort -V | tail -n 1)
-          test -n "${apksigner_path}"
+          apksigner_path="${ANDROID_HOME}/build-tools/37.0.0/apksigner"
           "${apksigner_path}" verify --verbose --print-certs release/COMSAT.apk
+          python3 - <<'PY'
+          import json, os, pathlib
+          metadata = json.loads(pathlib.Path("app/build/outputs/apk/release/output-metadata.json").read_text())
+          apk = metadata["elements"][0]
+          info = {"applicationId": metadata["applicationId"], "versionName": apk["versionName"],
+                  "versionCode": apk["versionCode"], "sourceSha": os.environ["GITHUB_SHA"],
+                  "runId": os.environ["GITHUB_RUN_ID"]}
+          pathlib.Path("release/build-info.json").write_text(json.dumps(info, indent=2) + "\n")
+          PY
           cd release
           sha256sum COMSAT.apk > COMSAT.apk.sha256
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: COMSAT-${{ github.ref_name }}
+          name: COMSAT-${{ github.ref_name }}-${{ github.run_number }}
           path: release/
           if-no-files-found: error
 
       - name: Publish GitHub release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
             gh release upload "${GITHUB_REF_NAME}" \
-              release/COMSAT.apk release/COMSAT.apk.sha256 --clobber
+              release/COMSAT.apk release/COMSAT.apk.sha256 release/build-info.json --clobber
           else
             gh release create "${GITHUB_REF_NAME}" \
-              release/COMSAT.apk release/COMSAT.apk.sha256 \
+              release/COMSAT.apk release/COMSAT.apk.sha256 release/build-info.json \
               --verify-tag \
               --title "COMSAT ${GITHUB_REF_NAME#v}" \
               --generate-notes

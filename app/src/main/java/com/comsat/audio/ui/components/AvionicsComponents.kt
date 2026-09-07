@@ -3,7 +3,8 @@ package com.comsat.audio.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -24,6 +26,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,8 +36,15 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
@@ -82,8 +93,8 @@ fun AvionicsModule(
         Column(
             modifier = Modifier
                 .then(if (fillHeight) Modifier.weight(1f) else Modifier)
-                .padding(horizontal = 14.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
             content = content
         )
     }
@@ -149,22 +160,46 @@ fun TickFader(
     value: Float,
     onValueChange: (Float) -> Unit,
     accent: Color,
+    description: String,
     modifier: Modifier = Modifier
 ) {
     val outline = MaterialTheme.colorScheme.outline
     val thumbFill = MaterialTheme.colorScheme.surfaceVariant
+    val changeValue by rememberUpdatedState(onValueChange)
 
     androidx.compose.foundation.Canvas(
         modifier = modifier
-            .height(24.dp)
+            .height(48.dp)
             .progressSemantics(value)
+            .semantics {
+                contentDescription = description
+                setProgress { requested ->
+                    val next = requested.coerceIn(0f, 1f)
+                    if (next == value) false else {
+                        changeValue(next)
+                        true
+                    }
+                }
+            }
+            .onKeyEvent { event ->
+                val step = when (event.key) {
+                    Key.DirectionRight, Key.DirectionUp -> 0.05f
+                    Key.DirectionLeft, Key.DirectionDown -> -0.05f
+                    else -> return@onKeyEvent false
+                }
+                if (event.type == KeyEventType.KeyDown) {
+                    changeValue((value + step).coerceIn(0f, 1f))
+                }
+                true
+            }
+            .focusable()
             .pointerInput(Unit) {
-                detectTapGestures { pos -> onValueChange((pos.x / size.width).coerceIn(0f, 1f)) }
+                detectTapGestures { pos -> changeValue((pos.x / size.width).coerceIn(0f, 1f)) }
             }
             .pointerInput(Unit) {
-                detectDragGestures { change, _ ->
+                detectHorizontalDragGestures { change, _ ->
                     change.consume()
-                    onValueChange((change.position.x / size.width).coerceIn(0f, 1f))
+                    changeValue((change.position.x / size.width).coerceIn(0f, 1f))
                 }
             }
     ) {
@@ -219,10 +254,10 @@ fun SquareToggleButton(
     val borderColor = if (active) accent.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outline
     Box(
         modifier = modifier
-            .size(width = 52.dp, height = 44.dp)
+            .size(width = 52.dp, height = 48.dp)
             .border(1.dp, borderColor)
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
-            .clickable(onClick = onClick)
+            .clickable(role = Role.Button, onClick = onClick)
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
     ) {
@@ -244,16 +279,17 @@ fun PlacardButton(
     modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.onSurfaceVariant
 ) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelSmall,
-        color = color,
+    Box(
         modifier = modifier
+            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
             .border(1.dp, MaterialTheme.colorScheme.outline)
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp)
-    )
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text = text, style = MaterialTheme.typography.labelSmall, color = color)
+    }
 }
 
 // ─── Footer placard: live panel telemetry ─────────────────────────────────────

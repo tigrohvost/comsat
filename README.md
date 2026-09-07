@@ -65,6 +65,7 @@ Requires JDK 21 and Android SDK 37 with Build Tools 37.0.0.
 
 ```bash
 ./gradlew testDebugUnitTest lintDebug assembleDebug
+./gradlew -Pcomsat.testBuildType=release testReleaseUnitTest lintRelease assembleRelease
 ```
 
 For a signed release, provide the keystore through environment variables:
@@ -86,19 +87,32 @@ repository.
 <details>
 <summary><strong>Publish a release</strong></summary>
 
+To build and verify a signed APK without publishing a release, run **Actions →
+Android Release → Run workflow** on the desired branch. The `COMSAT-…` artifact
+contains the signed APK, its SHA-256 checksum and `build-info.json` with the
+source commit. The workflow also launches the minified APK on an offline Android
+emulator and checks selectors, stopping playback, saved selections, themes,
+landscape layout and large text. Screenshots and test reports are uploaded
+separately. Repository signing secrets are required for either mode.
+
 Set the repository secrets `COMSAT_KEYSTORE_BASE64` and
 `COMSAT_KEYSTORE_PASSWORD`, update `versionName` / `versionCode`, then push a
 matching semantic tag:
 
 ```bash
-git tag -a v1.2.0 -m "COMSAT 1.2.0"
-git push origin v1.2.0
+git tag -a v1.3.3 -m "COMSAT 1.3.3"
+git push origin v1.3.3
 ```
 
 The release workflow rejects a tag that does not match the app version. A
 successful run publishes stable assets named `COMSAT.apk` and
 `COMSAT.apk.sha256`, so the download link at the top always follows the latest
 release.
+
+For the same smoke test locally, use a disposable emulator with signing
+configured and run `bash tools/run_release_smoke.sh`. It disables the emulator's
+Wi-Fi and mobile data. Regular CI also tests and builds the unsigned release
+variant on every pull request and push to `main`.
 
 </details>
 

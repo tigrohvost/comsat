@@ -107,6 +107,8 @@ data class StreamState(
     val error: String? = null
 ) {
     val isActive get() = status == StreamStatus.PLAYING || status == StreamStatus.BUFFERING
+    val canPause get() = isActive || status == StreamStatus.LOADING ||
+        status == StreamStatus.RECONNECTING
 }
 
 // ─── ATIS / METAR ─────────────────────────────────────────────────────────────

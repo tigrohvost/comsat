@@ -3,6 +3,7 @@ package com.comsat.audio.ui.screen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -10,10 +11,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.DarkMode
@@ -34,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -88,76 +93,92 @@ fun MainScreen(
             selectedIcao = airport?.icao,
             modifier = Modifier.fillMaxSize()
         )
-        Column(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing)
                 .padding(horizontal = 16.dp, vertical = 16.dp)
         ) {
-            // The panel never scrolls: header and footer keep their intrinsic
-            // size, the two modules split whatever is left, and inside each
-            // module the spectrum absorbs the slack. Text that can vary in
-            // length is capped so it cannot push the layout off screen.
+            // Preserve the fitted panel on tall screens. In a short window or
+            // with large text, let the controls keep their size and scroll.
+            val compact = maxHeight < 800.dp || LocalDensity.current.fontScale > 1.2f
             Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                modifier = Modifier.fillMaxSize()
+                    .then(if (compact) Modifier.verticalScroll(rememberScrollState()) else Modifier)
             ) {
-                PanelHeader()
-
-                AvionicsModule(
-                    title = "COMM 1 · ATC",
-                    status = atcState.status,
-                    accent = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.weight(1f),
-                    fillHeight = true
+                Column(
+                    modifier = if (compact) Modifier else Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    StreamModuleBody(
-                        sourceName = airport?.let { "${it.icao} · ${it.name.uppercase()}" }
-                            ?: "NO AIRPORT SELECTED",
-                        subLabel = airport?.let { "${it.city}, ${it.country} — ${it.feed.label}".uppercase() },
-                        state = atcState,
-                        spectrum = atcSpectrum,
-                        volume = atcVolume,
-                        onVolumeChange = viewModel::setAtcVolume,
-                        onToggle = viewModel::toggleAtcPlayback,
-                        onSelectSource = { navController.navigate(Screen.Airports.route) },
+                    PanelHeader()
+
+                    AvionicsModule(
+                        title = "COMM 1 · ATC",
+                        status = atcState.status,
                         accent = MaterialTheme.colorScheme.primary,
-                        cornerContent = {
-                            AtisReadout(
-                                data = atisData,
-                                accent = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    )
+                        modifier = if (compact) Modifier else Modifier.weight(1f),
+                        fillHeight = !compact
+                    ) {
+                        StreamModuleBody(
+                            sourceName = airport?.let { "${it.icao} · ${it.name.uppercase()}" }
+                                ?: "NO AIRPORT SELECTED",
+                            subLabel = airport?.let { "${it.city}, ${it.country} — ${it.feed.label}".uppercase() },
+                            state = atcState,
+                            spectrum = atcSpectrum,
+                            volume = atcVolume,
+                            onVolumeChange = viewModel::setAtcVolume,
+                            onToggle = {
+                                if (airport == null) navController.navigate(Screen.Airports.route)
+                                else viewModel.toggleAtcPlayback()
+                            },
+                            onSelectSource = { navController.navigate(Screen.Airports.route) },
+                            accent = MaterialTheme.colorScheme.primary,
+                            channel = "ATC",
+                            hasSource = airport != null,
+                            expandSpectrum = !compact,
+                            cornerContent = {
+                                AtisReadout(
+                                    data = atisData,
+                                    accent = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        )
+                    }
+
+                    AvionicsModule(
+                        title = "COMM 2 · AMBIENT",
+                        status = somaState.status,
+                        accent = MaterialTheme.colorScheme.tertiary,
+                        modifier = if (compact) Modifier else Modifier.weight(1f),
+                        fillHeight = !compact
+                    ) {
+                        StreamModuleBody(
+                            sourceName = station?.title?.uppercase() ?: "NO STATION SELECTED",
+                            subLabel = (nowPlaying ?: station?.let { "${it.network} — ${it.genre}" })?.uppercase(),
+                            state = somaState,
+                            spectrum = somaSpectrum,
+                            volume = somaVolume,
+                            onVolumeChange = viewModel::setSomaVolume,
+                            onToggle = {
+                                if (station == null) navController.navigate(Screen.Stations.route)
+                                else viewModel.toggleSomaPlayback()
+                            },
+                            onSelectSource = { navController.navigate(Screen.Stations.route) },
+                            accent = MaterialTheme.colorScheme.tertiary,
+                            channel = "ambient",
+                            hasSource = station != null,
+                            expandSpectrum = !compact
+                        )
+                    }
                 }
 
-                AvionicsModule(
-                    title = "COMM 2 · AMBIENT",
-                    status = somaState.status,
-                    accent = MaterialTheme.colorScheme.tertiary,
-                    modifier = Modifier.weight(1f),
-                    fillHeight = true
-                ) {
-                    StreamModuleBody(
-                        sourceName = station?.title?.uppercase() ?: "NO STATION SELECTED",
-                        subLabel = (nowPlaying ?: station?.let { "${it.network} — ${it.genre}" })?.uppercase(),
-                        state = somaState,
-                        spectrum = somaSpectrum,
-                        volume = somaVolume,
-                        onVolumeChange = viewModel::setSomaVolume,
-                        onToggle = viewModel::toggleSomaPlayback,
-                        onSelectSource = { navController.navigate(Screen.Stations.route) },
-                        accent = MaterialTheme.colorScheme.tertiary
-                    )
-                }
+                FooterPlacard(
+                    netOnline = netOnline,
+                    activeStreams = listOf(atcState.canPause, somaState.canPause).count { it },
+                    version = BuildConfig.VERSION_NAME,
+                    modifier = Modifier.padding(top = 16.dp)
+                )
             }
-
-            FooterPlacard(
-                netOnline = netOnline,
-                activeStreams = listOf(atcState.isActive, somaState.isActive).count { it },
-                version = BuildConfig.VERSION_NAME,
-                modifier = Modifier.padding(top = 16.dp)
-            )
         }
     }
 }
@@ -171,7 +192,7 @@ private fun PanelHeader() {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.Top
     ) {
-        Column {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = "COMSAT",
                 style = MaterialTheme.typography.displayLarge.copy(fontSize = 26.sp),
@@ -277,6 +298,9 @@ private fun ColumnScope.StreamModuleBody(
     onToggle: () -> Unit,
     onSelectSource: () -> Unit,
     accent: Color,
+    channel: String,
+    hasSource: Boolean,
+    expandSpectrum: Boolean,
     cornerContent: (@Composable () -> Unit)? = null
 ) {
     // Station name + change button
@@ -312,7 +336,7 @@ private fun ColumnScope.StreamModuleBody(
         active = state.isActive,
         volume = volume,
         accent = accent,
-        modifier = Modifier.weight(1f)
+        modifier = if (expandSpectrum) Modifier.weight(1f) else Modifier.height(48.dp)
     )
 
     // Fader with digital readout
@@ -329,6 +353,7 @@ private fun ColumnScope.StreamModuleBody(
             value = volume,
             onValueChange = onVolumeChange,
             accent = accent,
+            description = "$channel volume",
             modifier = Modifier.weight(1f)
         )
         Text(
@@ -345,10 +370,15 @@ private fun ColumnScope.StreamModuleBody(
         verticalAlignment = Alignment.Bottom
     ) {
         SquareToggleButton(
-            active = state.isActive,
+            active = state.canPause,
             accent = accent,
             onClick = onToggle,
-            description = if (state.isActive) "Pause" else "Play"
+            description = when {
+                state.canPause -> "Pause $channel"
+                hasSource -> "Play $channel"
+                channel == "ATC" -> "Choose airport"
+                else -> "Choose station"
+            }
         )
         Spacer(modifier = Modifier.weight(1f))
         cornerContent?.invoke()

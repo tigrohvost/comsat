@@ -36,15 +36,22 @@ class AtcStatusCache @Inject constructor(
     private val mapType = object : TypeToken<Map<String, AtcStatusEntry>>() {}.type
 
     suspend fun load(): Map<String, AtcStatusEntry> {
-        val raw = context.statusStore.data.first()[KEY] ?: return emptyMap()
+        return decode(context.statusStore.data.first()[KEY])
+    }
+
+    private fun decode(raw: String?): Map<String, AtcStatusEntry> {
+        if (raw == null) return emptyMap()
         return runCatching { gson.fromJson<Map<String, AtcStatusEntry>>(raw, mapType) }
             .getOrNull() ?: emptyMap()
     }
 
     suspend fun update(entries: Map<String, AtcStatusEntry>) {
         if (entries.isEmpty()) return
-        val merged = load() + entries
-        context.statusStore.edit { it[KEY] = gson.toJson(merged) }
+        // Read inside the transaction: selection and a catalog refresh can
+        // finish together, and neither may overwrite the other's results.
+        context.statusStore.edit { prefs ->
+            prefs[KEY] = gson.toJson(decode(prefs[KEY]) + entries)
+        }
     }
 
     private companion object {
