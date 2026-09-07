@@ -47,11 +47,12 @@ class ReleaseSmokeTest {
         // No source selected: Play should open the selector, not do nothing.
         visible(By.desc("Choose airport")).click()
         visible(By.text("SELECT AIRPORT"))
-        visible(By.desc("ICAO / city / country")).apply {
+        visible(By.pkg(TARGET_PACKAGE).clazz("android.widget.EditText")).apply {
             click()
             text = "KJFK"
         }
         visible(By.desc("Clear search"))
+        screenshot("airports-filtered")
         device.pressKeyCode(KeyEvent.KEYCODE_ENTER) // submit search and dismiss keyboard
         visible(By.textContains("John F. Kennedy Intl")).click()
         scrollTo(By.desc("Pause ATC"), down = false).click()
@@ -62,7 +63,7 @@ class ReleaseSmokeTest {
         visible(By.textContains("Rain Radio"))
         visible(By.text("RETRY")) // directory failure must remain visible with fallback data
         screenshot("stations-offline")
-        visible(By.desc("station / genre")).apply {
+        visible(By.pkg(TARGET_PACKAGE).clazz("android.widget.EditText")).apply {
             click()
             text = "no-such-station"
         }
@@ -125,8 +126,18 @@ class ReleaseSmokeTest {
     }
 
     private fun screenshot(name: String) {
-        val directory = File(context.getExternalFilesDir(null), "smoke").apply { mkdirs() }
-        assertTrue("Could not save screenshot", device.takeScreenshot(File(directory, "$name.png")))
+        // UTP uninstalls test packages after the run, so app-private external
+        // files disappear before the host can pull them. Shell-owned captures
+        // in Download survive that cleanup.
+        val directory = "/sdcard/Download/comsat-smoke"
+        device.executeShellCommand("mkdir -p $directory")
+        device.executeShellCommand("screencap -p $directory/$name.png")
+        val size = device.executeShellCommand("stat -c %s $directory/$name.png")
+            .trim().toLongOrNull() ?: 0L
+        assertTrue("Could not save screenshot", size > 0L)
+        val hierarchy = File(context.getExternalFilesDir(null), "$name.xml")
+        device.dumpWindowHierarchy(hierarchy)
+        device.executeShellCommand("cp ${hierarchy.absolutePath} $directory/$name.xml")
     }
 
     private companion object {

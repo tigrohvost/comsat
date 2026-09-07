@@ -6,7 +6,7 @@ report_dir=smoke/build/reports/release-smoke
 mkdir -p "${report_dir}"
 collect_diagnostics() {
   adb logcat -d > "${report_dir}/logcat.txt" || true
-  adb pull /sdcard/Android/data/com.comsat.audio.smoke/files/smoke \
+  adb pull /sdcard/Download/comsat-smoke \
     "${report_dir}/screenshots" > "${report_dir}/screenshot-pull.txt" 2>&1 || true
 }
 trap collect_diagnostics EXIT
