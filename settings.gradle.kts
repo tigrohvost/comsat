@@ -21,3 +21,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "COMSAT"
 include(":app")
+include(":smoke")

@@ -35,7 +35,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    // Exercise the actual minified APK in the release workflow.
+    // Select the variant for JVM tests; UI checks live in the separate smoke module.
     testBuildType = providers.gradleProperty("comsat.testBuildType").getOrElse("debug")
 
     signingConfigs {
@@ -64,7 +64,6 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            testProguardFiles("proguard-test-rules.pro")
         }
     }
 
@@ -113,7 +112,6 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
-    androidTestImplementation(libs.androidx.uiautomator)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.tooling)

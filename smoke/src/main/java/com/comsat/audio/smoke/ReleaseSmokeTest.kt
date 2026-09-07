@@ -1,6 +1,5 @@
-package com.comsat.audio
+package com.comsat.audio.smoke
 
-import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.view.KeyEvent
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -18,12 +17,12 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 
-// Black-box checks: do not reference app classes, so testing does not add R8
-// keep rules that could conceal a release-only startup/deserialization bug.
+// This self-instrumenting test APK drives the installed release via its UI.
+// Its classes and dependencies never enter the app's R8 inputs or process.
 // Run on a disposable emulator with Wi-Fi and mobile data disabled.
 @RunWith(AndroidJUnit4::class)
 class ReleaseSmokeTest {
-    private val context = InstrumentationRegistry.getInstrumentation().targetContext
+    private val context = InstrumentationRegistry.getInstrumentation().context
     private val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
 
     @After
@@ -37,10 +36,11 @@ class ReleaseSmokeTest {
     @Test
     fun releaseLaunchSelectorsCancellationAndCompactLayout() {
         assertFalse("Smoke test must exercise a release APK",
-            context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0)
+            context.packageManager.getApplicationInfo(TARGET_PACKAGE, 0).flags and
+                ApplicationInfo.FLAG_DEBUGGABLE != 0)
         Configurator.getInstance().waitForIdleTimeout = 0
         device.setOrientationNatural()
-        device.executeShellCommand("pm grant ${context.packageName} android.permission.POST_NOTIFICATIONS")
+        device.executeShellCommand("pm grant $TARGET_PACKAGE android.permission.POST_NOTIFICATIONS")
         launchPanel()
         screenshot("panel-nordic")
 
@@ -104,8 +104,7 @@ class ReleaseSmokeTest {
     }
 
     private fun launchPanel() {
-        val intent = requireNotNull(context.packageManager.getLaunchIntentForPackage(context.packageName))
-        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        device.executeShellCommand("am start -W -n $TARGET_PACKAGE/.MainActivity -f 0x10008000")
         visible(By.text("COMSAT"))
     }
 
@@ -128,5 +127,9 @@ class ReleaseSmokeTest {
     private fun screenshot(name: String) {
         val directory = File(context.getExternalFilesDir(null), "smoke").apply { mkdirs() }
         assertTrue("Could not save screenshot", device.takeScreenshot(File(directory, "$name.png")))
+    }
+
+    private companion object {
+        const val TARGET_PACKAGE = "com.comsat.audio"
     }
 }

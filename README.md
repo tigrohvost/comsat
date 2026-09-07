@@ -94,6 +94,8 @@ source commit. The workflow also launches the minified APK on an offline Android
 emulator and checks selectors, stopping playback, saved selections, themes,
 landscape layout and large text. Screenshots and test reports are uploaded
 separately. Repository signing secrets are required for either mode.
+UI Automator runs in the separate `smoke` module and process, preserving the
+app's normal release optimization and startup path.
 
 Set the repository secrets `COMSAT_KEYSTORE_BASE64` and
 `COMSAT_KEYSTORE_PASSWORD`, update `versionName` / `versionCode`, then push a

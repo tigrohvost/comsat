@@ -76,7 +76,7 @@ jobs:
           COMSAT_KEY_PASSWORD: ${{ secrets.COMSAT_KEYSTORE_PASSWORD }}
         run: |
           ./gradlew testDebugUnitTest --stacktrace
-          ./gradlew -Pcomsat.testBuildType=release testReleaseUnitTest lintRelease assembleRelease assembleReleaseAndroidTest --stacktrace
+          ./gradlew -Pcomsat.testBuildType=release testReleaseUnitTest lintRelease :app:assembleRelease :smoke:assembleRelease --stacktrace
 
       - name: Enable emulator acceleration
         run: |
@@ -107,6 +107,8 @@ jobs:
             app/build/reports/
             app/build/outputs/androidTest-results/
             app/build/outputs/mapping/release/
+            smoke/build/reports/
+            smoke/build/outputs/androidTest-results/
           if-no-files-found: ignore
           retention-days: 14
 
