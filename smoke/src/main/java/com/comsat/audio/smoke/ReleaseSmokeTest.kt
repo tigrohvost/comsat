@@ -59,10 +59,10 @@ class ReleaseSmokeTest {
         screenshot("airports-filtered")
         device.pressKeyCode(KeyEvent.KEYCODE_ENTER) // submit search and dismiss keyboard
         visible(By.textContains("John F. Kennedy Intl")).click()
-        scrollTo(By.desc("Pause ATC"), down = false).click()
+        visible(By.desc("Pause ATC")).click()
         visible(By.desc("Play ATC"))
 
-        scrollTo(By.desc("Choose station")).click()
+        visible(By.desc("Choose station")).click()
         visible(By.text("SELECT STATION"))
         visible(By.textContains("Rain Radio"))
         visible(By.text("RETRY")) // directory failure must remain visible with fallback data
@@ -75,7 +75,7 @@ class ReleaseSmokeTest {
         visible(By.desc("Clear search")).click()
         device.pressKeyCode(KeyEvent.KEYCODE_ENTER)
         visible(By.textContains("Rain Radio")).click()
-        scrollTo(By.desc("Pause ambient")).click()
+        visible(By.desc("Pause ambient")).click()
         visible(By.desc("Play ambient"))
         Thread.sleep(6_000) // pass the first reconnect deadline
         assertFalse("Cancelled playback restarted", device.hasObject(By.desc("Pause ambient")))
@@ -83,7 +83,8 @@ class ReleaseSmokeTest {
         // Recreate the activity and ViewModel; saved selections must survive.
         launchPanel()
         visible(By.textContains("KJFK"))
-        scrollTo(By.text("RAIN RADIO"))
+        visible(By.text("RAIN RADIO"))
+        verifyFixedPanel()
         selectTheme("LIGHT")
         screenshot("panel-light")
         selectTheme("DARK")
@@ -91,19 +92,15 @@ class ReleaseSmokeTest {
         selectTheme("NORDIC")
         screenshot("panel-nordic-selected")
 
-        // Both controls remain reachable after rotation and with large fonts.
+        // Both channels fit without scrolling after rotation and with large fonts.
         device.setOrientationLeft()
-        scrollTo(By.desc("Play ATC"))
-        screenshot("landscape-atc")
-        scrollTo(By.desc("Play ambient"))
-        screenshot("landscape-ambient")
+        verifyFixedPanel()
+        screenshot("landscape-panel")
         device.setOrientationNatural()
         device.executeShellCommand("settings put system font_scale 1.5")
         launchPanel()
-        scrollTo(By.desc("Play ATC"))
-        screenshot("large-text-atc")
-        scrollTo(By.desc("Play ambient"))
-        screenshot("large-text-ambient")
+        verifyFixedPanel()
+        screenshot("large-text-panel")
         assertNull("Emulator reconnected during the offline test", connectivity.activeNetwork)
     }
 
@@ -134,21 +131,22 @@ class ReleaseSmokeTest {
         }
 
     private fun selectTheme(name: String) {
-        scrollTo(By.descStartsWith("Select theme:"), down = false).click()
+        visible(By.descStartsWith("Select theme:")).click()
         visible(By.text(name)).click()
         visible(By.desc("Select theme: $name"))
         assertTrue("Theme menu did not close", device.wait(Until.gone(By.text(name)), 5_000))
     }
 
-    private fun scrollTo(selector: BySelector, down: Boolean = true): UiObject2 {
-        repeat(10) {
-            device.wait(Until.findObject(selector), 500)?.let { return it }
-            val x = device.displayWidth / 2
-            val top = device.displayHeight / 4
-            val bottom = device.displayHeight * 3 / 4
-            device.swipe(x, if (down) bottom else top, x, if (down) top else bottom, 30)
+    private fun verifyFixedPanel() {
+        val minimumControlHeight = (48 * context.resources.displayMetrics.density).toInt() - 1
+        for (description in listOf("Play ATC", "Play ambient", "ATC volume", "ambient volume")) {
+            val control = visible(By.desc(description))
+            assertTrue("Clipped control: $description",
+                control.visibleBounds.height() >= minimumControlHeight)
         }
-        return visible(selector)
+        visible(By.textStartsWith("VER "))
+        assertFalse("Main panel must fit without scrolling",
+            device.hasObject(By.pkg(TARGET_PACKAGE).scrollable(true)))
     }
 
     private fun screenshot(name: String) {

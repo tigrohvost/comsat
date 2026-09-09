@@ -64,6 +64,7 @@ fun AvionicsModule(
     // When the module itself is given a height (e.g. a Column weight), let the
     // body fill it so a weighted child inside — the spectrum — can stretch.
     fillHeight: Boolean = false,
+    compact: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val outline = MaterialTheme.colorScheme.outline
@@ -76,7 +77,7 @@ fun AvionicsModule(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .padding(horizontal = 14.dp, vertical = if (compact) 6.dp else 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -93,8 +94,8 @@ fun AvionicsModule(
         Column(
             modifier = Modifier
                 .then(if (fillHeight) Modifier.weight(1f) else Modifier)
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .padding(horizontal = 14.dp, vertical = if (compact) 6.dp else 12.dp),
+            verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 10.dp),
             content = content
         )
     }
@@ -299,7 +300,8 @@ fun FooterPlacard(
     netOnline: Boolean,
     activeStreams: Int,
     version: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
 ) {
     val dim = MaterialTheme.colorScheme.outline
     Column(modifier = modifier.fillMaxWidth()) {
@@ -307,7 +309,7 @@ fun FooterPlacard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 12.dp),
+                .padding(horizontal = 4.dp, vertical = if (compact) 6.dp else 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(

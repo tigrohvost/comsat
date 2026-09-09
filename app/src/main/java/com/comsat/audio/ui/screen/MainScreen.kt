@@ -9,15 +9,13 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.DarkMode
@@ -41,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -97,27 +96,31 @@ fun MainScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing)
-                .padding(horizontal = 16.dp, vertical = 16.dp)
+                .padding(horizontal = 16.dp)
         ) {
-            // Preserve the fitted panel on tall screens. In a short window or
-            // with large text, let the controls keep their size and scroll.
+            // Fit the controls to the window; the spectra absorb spare height.
             val compact = maxHeight < 800.dp || LocalDensity.current.fontScale > 1.2f
+            val sideBySide = maxWidth > maxHeight
+            val panelSpacing = if (compact) 8.dp else 16.dp
             Column(
                 modifier = Modifier.fillMaxSize()
-                    .then(if (compact) Modifier.verticalScroll(rememberScrollState()) else Modifier)
+                    .padding(vertical = panelSpacing),
+                verticalArrangement = Arrangement.spacedBy(panelSpacing)
             ) {
-                Column(
-                    modifier = if (compact) Modifier else Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    PanelHeader()
+                PanelHeader()
 
+                StreamPanels(
+                    sideBySide = sideBySide,
+                    spacing = panelSpacing,
+                    modifier = Modifier.weight(1f)
+                ) { moduleModifier ->
                     AvionicsModule(
                         title = "COMM 1 · ATC",
                         status = atcState.status,
                         accent = MaterialTheme.colorScheme.primary,
-                        modifier = if (compact) Modifier else Modifier.weight(1f),
-                        fillHeight = !compact
+                        modifier = moduleModifier,
+                        fillHeight = true,
+                        compact = compact
                     ) {
                         StreamModuleBody(
                             sourceName = airport?.let { "${it.icao} · ${it.name.uppercase()}" }
@@ -135,7 +138,7 @@ fun MainScreen(
                             accent = MaterialTheme.colorScheme.primary,
                             channel = "ATC",
                             hasSource = airport != null,
-                            expandSpectrum = !compact,
+                            compact = compact,
                             cornerContent = {
                                 AtisReadout(
                                     data = atisData,
@@ -149,8 +152,9 @@ fun MainScreen(
                         title = "COMM 2 · AMBIENT",
                         status = somaState.status,
                         accent = MaterialTheme.colorScheme.tertiary,
-                        modifier = if (compact) Modifier else Modifier.weight(1f),
-                        fillHeight = !compact
+                        modifier = moduleModifier,
+                        fillHeight = true,
+                        compact = compact
                     ) {
                         StreamModuleBody(
                             sourceName = station?.title?.uppercase() ?: "NO STATION SELECTED",
@@ -167,7 +171,7 @@ fun MainScreen(
                             accent = MaterialTheme.colorScheme.tertiary,
                             channel = "ambient",
                             hasSource = station != null,
-                            expandSpectrum = !compact
+                            compact = compact
                         )
                     }
                 }
@@ -176,9 +180,33 @@ fun MainScreen(
                     netOnline = netOnline,
                     activeStreams = listOf(atcState.canPause, somaState.canPause).count { it },
                     version = BuildConfig.VERSION_NAME,
-                    modifier = Modifier.padding(top = 16.dp)
+                    compact = compact
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun StreamPanels(
+    sideBySide: Boolean,
+    spacing: Dp,
+    modifier: Modifier = Modifier,
+    content: @Composable (Modifier) -> Unit
+) {
+    if (sideBySide) {
+        Row(
+            modifier = modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(spacing)
+        ) {
+            content(Modifier.weight(1f).fillMaxHeight())
+        }
+    } else {
+        Column(
+            modifier = modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(spacing)
+        ) {
+            content(Modifier.weight(1f).fillMaxWidth())
         }
     }
 }
@@ -300,7 +328,7 @@ private fun ColumnScope.StreamModuleBody(
     accent: Color,
     channel: String,
     hasSource: Boolean,
-    expandSpectrum: Boolean,
+    compact: Boolean,
     cornerContent: (@Composable () -> Unit)? = null
 ) {
     // Station name + change button
@@ -314,7 +342,7 @@ private fun ColumnScope.StreamModuleBody(
                 text = sourceName,
                 style = MaterialTheme.typography.titleLarge.copy(fontSize = 17.sp),
                 color = accent,
-                maxLines = 2,
+                maxLines = if (compact) 1 else 2,
                 overflow = TextOverflow.Ellipsis
             )
             if (subLabel != null) {
@@ -336,7 +364,7 @@ private fun ColumnScope.StreamModuleBody(
         active = state.isActive,
         volume = volume,
         accent = accent,
-        modifier = if (expandSpectrum) Modifier.weight(1f) else Modifier.height(48.dp)
+        modifier = Modifier.weight(1f)
     )
 
     // Fader with digital readout
