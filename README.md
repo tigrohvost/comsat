@@ -118,8 +118,8 @@ Set the repository secrets `COMSAT_KEYSTORE_BASE64` and
 matching semantic tag:
 
 ```bash
-git tag -a v1.4.3 -m "COMSAT 1.4.3"
-git push origin v1.4.3
+git tag -a v1.4.4 -m "COMSAT 1.4.4"
+git push origin v1.4.4
 ```
 
 The release workflow rejects a tag that does not match the app version. A

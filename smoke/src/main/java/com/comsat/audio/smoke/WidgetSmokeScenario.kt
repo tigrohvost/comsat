@@ -275,7 +275,7 @@ internal class WidgetSmokeScenario(
             val panelId = providerResources.getIdentifier("widget_panel", "id", TARGET_PACKAGE)
             val panel = current.widgetView.findViewById<android.view.View>(panelId)
             val background = panel.background as GradientDrawable
-            assertEquals("Widget background must be translucent", 204,
+            assertEquals("Widget background must be translucent", 153,
                 Color.alpha(requireNotNull(background.color).defaultColor))
             val hostBounds = Rect()
             assertTrue(current.widgetView.getGlobalVisibleRect(hostBounds))

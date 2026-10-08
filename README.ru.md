@@ -119,8 +119,8 @@ UI Automator работает в отдельном модуле и процес
 отправьте соответствующий семантический тег:
 
 ```bash
-git tag -a v1.4.3 -m "COMSAT 1.4.3"
-git push origin v1.4.3
+git tag -a v1.4.4 -m "COMSAT 1.4.4"
+git push origin v1.4.4
 ```
 
 Release workflow отклоняет тег, который не совпадает с версией приложения.
