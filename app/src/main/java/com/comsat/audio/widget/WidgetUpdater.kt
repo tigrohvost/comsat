@@ -35,7 +35,15 @@ class WidgetUpdater @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val renderMutex = Mutex()
     private val manager = AppWidgetManager.getInstance(context)
-    private val provider = ComponentName(context, ComsatWidgetProvider::class.java)
+    private val providers = listOf(
+        ComsatWidgetProvider::class.java to WidgetFormat.FULL,
+        ComsatSquareWidgetProvider::class.java to WidgetFormat.SQUARE,
+        ComsatSlimWidgetProvider::class.java to WidgetFormat.SLIM
+    ).map { (type, format) -> ComponentName(context, type) to format }
+
+    private fun installedWidgets() = providers.flatMap { (provider, format) ->
+        manager.getAppWidgetIds(provider).map { id -> id to format }
+    }
     private var observation: Job? = null
 
     @Synchronized
@@ -48,7 +56,7 @@ class WidgetUpdater @Inject constructor(
                     // Widget IPC is optional app functionality. Keep this
                     // lookup off Application.onCreate's unguarded call path.
                     // Rechecking on retries also ends recovery if no widgets remain.
-                    if (manager.getAppWidgetIds(provider).isEmpty()) return@launch
+                    if (installedWidgets().isEmpty()) return@launch
                     combine(settingsRepository.settings, playbackRepository.snapshot) { settings, playback ->
                         widgetModel(settings, playback, settings.airportIcao?.let(airportCatalog::find))
                     }.distinctUntilChanged().collect {
@@ -94,8 +102,11 @@ class WidgetUpdater @Inject constructor(
     }
 
     private suspend fun refresh() = renderMutex.withLock {
-        val ids = manager.getAppWidgetIds(provider)
-        if (ids.isEmpty()) return@withLock
+        val widgets = installedWidgets()
+        if (widgets.isEmpty()) {
+            stop()
+            return@withLock
+        }
         // Read inside the lock instead of rendering the collector's possibly
         // older value after a provider resize/update has already refreshed it.
         val settings = settingsRepository.settings.first()
@@ -104,8 +115,8 @@ class WidgetUpdater @Inject constructor(
             playbackRepository.snapshot.value,
             settings.airportIcao?.let(airportCatalog::find)
         )
-        ids.forEach { id ->
-            manager.updateAppWidget(id, WidgetViews.render(context, model, manager.getAppWidgetOptions(id)))
+        widgets.forEach { (id, format) ->
+            manager.updateAppWidget(id, WidgetViews.render(context, model, manager.getAppWidgetOptions(id), format))
         }
     }
 

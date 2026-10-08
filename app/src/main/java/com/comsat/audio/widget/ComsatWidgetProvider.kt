@@ -9,7 +9,15 @@ import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
 @AndroidEntryPoint
-class ComsatWidgetProvider : AppWidgetProvider() {
+class ComsatWidgetProvider : BaseComsatWidgetProvider()
+
+@AndroidEntryPoint
+class ComsatSquareWidgetProvider : BaseComsatWidgetProvider()
+
+@AndroidEntryPoint
+class ComsatSlimWidgetProvider : BaseComsatWidgetProvider()
+
+abstract class BaseComsatWidgetProvider : AppWidgetProvider() {
     @Inject lateinit var updater: WidgetUpdater
 
     // AppWidgetProvider dispatches restored IDs through onUpdate as well.
@@ -28,7 +36,8 @@ class ComsatWidgetProvider : AppWidgetProvider() {
     }
 
     override fun onDisabled(context: Context) {
-        updater.stop()
+        // Other sizes may still be on the home screen.
+        requestRefresh()
     }
 
     private fun requestRefresh() {

@@ -9,7 +9,10 @@
     <string name="notification_action_stop">Stop</string>
     <string name="notification_paused">Paused</string>
     <string name="widget_name">COMSAT · Airport + Radio</string>
+    <string name="widget_name_square">COMSAT · 2 × 2</string>
+    <string name="widget_name_slim">COMSAT · 2 × 1</string>
     <string name="widget_description">Your selected airport and radio, with playback status. Tap to open COMSAT.</string>
+    <string name="widget_status_dot" translatable="false">•</string>
     <string name="widget_heading">COMSAT / MIX</string>
     <string name="widget_airport_label">ATC</string>
     <string name="widget_station_label">RADIO</string>

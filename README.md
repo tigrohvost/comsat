@@ -38,6 +38,10 @@ built in.
    and add **COMSAT · Airport + Radio**. Resize the widget to show more detail;
    tap it to open the app.
 
+Separate **2 × 2** and **2 × 1** widgets offer compact layouts. All widget
+backgrounds are translucent. If new widgets are missing after an update,
+restart your launcher without clearing its data.
+
 The home-screen widget shows the selected airport, radio station and each
 channel's playback state. It follows the app's theme and keeps source names
 available offline. Updates follow selection and playback changes; Android also
@@ -114,8 +118,8 @@ Set the repository secrets `COMSAT_KEYSTORE_BASE64` and
 matching semantic tag:
 
 ```bash
-git tag -a v1.4.0 -m "COMSAT 1.4.0"
-git push origin v1.4.0
+git tag -a v1.4.1 -m "COMSAT 1.4.1"
+git push origin v1.4.1
 ```
 
 The release workflow rejects a tag that does not match the app version. A

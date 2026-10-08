@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.util.SizeF
+import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
 import androidx.compose.ui.graphics.toArgb
@@ -15,9 +16,14 @@ import com.comsat.audio.R
 import com.comsat.audio.data.model.StreamStatus
 import com.comsat.audio.ui.theme.*
 
+enum class WidgetFormat { FULL, SQUARE, SLIM }
+
 /** A small, event-driven display: no network requests or animation in the launcher. */
 object WidgetViews {
-    fun render(context: Context, model: WidgetModel, options: Bundle): RemoteViews {
+    fun render(
+        context: Context, model: WidgetModel, options: Bundle, format: WidgetFormat = WidgetFormat.FULL
+    ): RemoteViews {
+        if (format != WidgetFormat.FULL) return createSmall(context, model, format)
         val largeText = context.resources.configuration.fontScale > 1.2f
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             // The launcher chooses a fitting view on resize without starting our process.
@@ -60,35 +66,72 @@ object WidgetViews {
                 context, R.id.widget_station_source, R.id.widget_station_detail, R.id.widget_station_status,
                 model.stationTitle, model.stationNetwork, R.string.widget_choose_station, model.somaStatus, palette
             )
-            val intent = Intent(context, MainActivity::class.java).apply {
-                action = Intent.ACTION_MAIN
-                addCategory(Intent.CATEGORY_LAUNCHER)
-                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            }
-            setOnClickPendingIntent(R.id.widget_panel, PendingIntent.getActivity(
-                context, 20, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            ))
+            openAppOnClick(context)
         }
+    }
+
+    private fun createSmall(context: Context, model: WidgetModel, format: WidgetFormat): RemoteViews {
+        val palette = palette(model.themeMode)
+        val slim = format == WidgetFormat.SLIM
+        return RemoteViews(context.packageName,
+            if (slim) R.layout.comsat_widget_slim else R.layout.comsat_widget_square).apply {
+            setInt(R.id.widget_panel, "setBackgroundResource", palette.background)
+            if (slim) {
+                setInt(R.id.widget_airport_icon, "setColorFilter", palette.atc)
+                setInt(R.id.widget_station_icon, "setColorFilter", palette.radio)
+            } else {
+                setTextColor(R.id.widget_airport_label, palette.atc)
+                setTextColor(R.id.widget_station_label,
+                    if (model.themeMode == ThemeMode.NORDIC) palette.secondary else palette.radio)
+            }
+            // Keep two rows within one launcher cell even with enlarged system text.
+            if (context.resources.configuration.fontScale > 1.2f) {
+                val textSize = if (slim) 12f else 16f
+                setTextViewTextSize(R.id.widget_airport_source, TypedValue.COMPLEX_UNIT_SP, textSize)
+                setTextViewTextSize(R.id.widget_station_source, TypedValue.COMPLEX_UNIT_SP, textSize)
+            }
+            source(context, R.id.widget_airport_source, null, R.id.widget_airport_status,
+                model.airportIcao, model.airportName, R.string.widget_choose_airport,
+                model.atcStatus, palette, compactStatus = true)
+            source(context, R.id.widget_station_source, null, R.id.widget_station_status,
+                model.stationTitle, model.stationNetwork, R.string.widget_choose_station,
+                model.somaStatus, palette, compactStatus = true)
+            openAppOnClick(context)
+        }
+    }
+
+    private fun RemoteViews.openAppOnClick(context: Context) {
+        val intent = Intent(context, MainActivity::class.java).apply {
+            action = Intent.ACTION_MAIN
+            addCategory(Intent.CATEGORY_LAUNCHER)
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        setOnClickPendingIntent(R.id.widget_panel, PendingIntent.getActivity(
+            context, 20, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        ))
     }
 
     private fun RemoteViews.source(
         context: Context,
         sourceId: Int,
-        detailId: Int,
+        detailId: Int?,
         statusId: Int,
         title: String?,
         detail: String?,
         emptyTitle: Int,
         status: StreamStatus,
-        palette: Palette
+        palette: Palette,
+        compactStatus: Boolean = false
     ) {
         val titleText = title ?: context.getString(emptyTitle)
         val detailText = detail ?: if (title == null) context.getString(R.string.widget_selection_hint) else ""
         setTextViewText(sourceId, titleText)
-        setTextViewText(detailId, detailText)
+        if (detailId != null) {
+            setTextViewText(detailId, detailText)
+            setTextColor(detailId, palette.secondary)
+        }
         setContentDescription(sourceId, listOf(titleText, detailText).filter { it.isNotBlank() }.joinToString(". "))
         setTextColor(sourceId, palette.text)
-        setTextColor(detailId, palette.secondary)
         val statusLabel = if (title == null) R.string.widget_not_selected else when (status) {
             StreamStatus.IDLE -> R.string.widget_stopped
             StreamStatus.LOADING -> R.string.widget_connecting
@@ -98,7 +141,9 @@ object WidgetViews {
             StreamStatus.RECONNECTING -> R.string.widget_reconnecting
             StreamStatus.ERROR -> R.string.widget_offline
         }
-        setTextViewText(statusId, context.getString(statusLabel))
+        val statusText = context.getString(statusLabel)
+        setTextViewText(statusId, if (compactStatus) context.getString(R.string.widget_status_dot) else statusText)
+        setContentDescription(statusId, "$titleText. $statusText")
         setTextColor(statusId, when {
             title == null -> palette.secondary
             status == StreamStatus.PLAYING -> palette.playing

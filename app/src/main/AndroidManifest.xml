@@ -41,6 +41,30 @@
                 android:resource="@xml/comsat_widget_info" />
         </receiver>
 
+        <receiver
+            android:name=".widget.ComsatSquareWidgetProvider"
+            android:exported="false"
+            android:label="@string/widget_name_square">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/comsat_widget_square_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.ComsatSlimWidgetProvider"
+            android:exported="false"
+            android:label="@string/widget_name_slim">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/comsat_widget_slim_info" />
+        </receiver>
+
         <service
             android:name=".service.AudioService"
             android:foregroundServiceType="mediaPlayback"

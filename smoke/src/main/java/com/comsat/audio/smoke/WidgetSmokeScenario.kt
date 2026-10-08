@@ -6,6 +6,8 @@ import android.appwidget.AppWidgetProviderInfo
 import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Rect
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.KeyEvent
@@ -30,6 +32,7 @@ internal class WidgetSmokeScenario(
     private val allocator = AppWidgetHost(context, WidgetHostActivity.HOST_ID)
     private var widgetId = AppWidgetManager.INVALID_APPWIDGET_ID
     private var activity: WidgetHostActivity? = null
+    private val allocatedIds = mutableListOf<Int>()
 
     // The main smoke scenario has already selected KJFK and Rain Radio, then stopped both.
     fun run() {
@@ -39,6 +42,12 @@ internal class WidgetSmokeScenario(
         device.executeShellCommand("appwidget grantbind --package ${context.packageName} --user $userId")
         try {
             widgetId = allocator.allocateAppWidgetId()
+            allocatedIds += widgetId
+            val providers = manager.installedProviders.filter { it.provider.packageName == TARGET_PACKAGE }
+            for (name in listOf("ComsatWidgetProvider", "ComsatSquareWidgetProvider", "ComsatSlimWidgetProvider")) {
+                assertTrue("Missing widget in system picker: $name",
+                    providers.any { it.provider.className == "$TARGET_PACKAGE.widget.$name" })
+            }
             assertTrue("Could not bind release widget", manager.bindAppWidgetIdIfAllowed(
                 widgetId,
                 ComponentName(TARGET_PACKAGE, "$TARGET_PACKAGE.widget.ComsatWidgetProvider"),
@@ -120,6 +129,7 @@ internal class WidgetSmokeScenario(
                 requireNotNull(activity).resources.configuration.fontScale >= 1.49f)
             verifyLayout()
             screenshot("widget-minimum-large-text")
+            verifySmallWidgets()
         } catch (failure: Throwable) {
             try {
                 screenshot("widget-failure")
@@ -130,12 +140,64 @@ internal class WidgetSmokeScenario(
         } finally {
             instrumentation.runOnMainSync { activity?.finish() }
             instrumentation.waitForIdleSync()
-            if (widgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
-                allocator.deleteAppWidgetId(widgetId)
-            }
+            allocatedIds.forEach(allocator::deleteAppWidgetId)
             device.executeShellCommand("appwidget revokebind --package ${context.packageName} --user $userId")
             device.executeShellCommand("settings put system font_scale 1.0")
             openApp()
+        }
+    }
+
+    private fun verifySmallWidgets() {
+        val fullId = widgetId
+        val smallIds = listOf("ComsatSquareWidgetProvider", "ComsatSlimWidgetProvider").map { name ->
+            val id = allocator.allocateAppWidgetId()
+            allocatedIds += id
+            val provider = manager.installedProviders.single {
+                it.provider == ComponentName(TARGET_PACKAGE, "$TARGET_PACKAGE.widget.$name")
+            }
+            assertEquals(2, provider.targetCellWidth)
+            assertEquals(if (name.contains("Square")) 2 else 1, provider.targetCellHeight)
+            assertTrue("Cannot bind $name", manager.bindAppWidgetIdIfAllowed(id, provider.provider))
+            id
+        }
+        // Removing the final large instance must not stop updates to other providers.
+        allocator.deleteAppWidgetId(fullId)
+        allocatedIds.remove(fullId)
+        for ((index, id) in smallIds.withIndex()) {
+            widgetId = id
+            val height = if (index == 0) 110 else 56
+            val size = if (index == 0) "2x2" else "2x1"
+            for (theme in listOf("LIGHT", "DARK", "NORDIC")) {
+                showHost(110, height)
+                verifySources("KLAX")
+                val previousColor = widgetTextColor()
+                openApp()
+                visible(By.descStartsWith("Select theme:")).click()
+                visible(By.text(theme)).click()
+                visible(By.desc("Select theme: $theme"))
+                showHost(110, height)
+                verifySources("KLAX")
+                val deadline = SystemClock.uptimeMillis() + 5_000
+                while (widgetTextColor() == previousColor && SystemClock.uptimeMillis() < deadline) {
+                    SystemClock.sleep(50)
+                }
+                assertTrue("Small widget did not apply $theme", widgetTextColor() != previousColor)
+                visible(widget("widget_airport_status").desc("KLAX. STOPPED"))
+                visible(widget("widget_station_status").desc("Rain Radio. STOPPED"))
+                verifyLayout(small = true)
+                screenshot("widget-$size-${theme.lowercase()}-large-text")
+            }
+            device.executeShellCommand("settings put system font_scale 1.0")
+            showHost(140, if (index == 0) 140 else 70)
+            verifySources("KLAX")
+            verifyLayout(small = true)
+            screenshot("widget-$size")
+            // A click must still launch the app in the small layouts.
+            visible(widget("widget_panel")).click()
+            visible(By.text("COMSAT"))
+            allocator.deleteAppWidgetId(id)
+            allocatedIds.remove(id)
+            device.executeShellCommand("settings put system font_scale 1.5")
         }
     }
 
@@ -194,12 +256,17 @@ internal class WidgetSmokeScenario(
         return color
     }
 
-    private fun verifyLayout() {
-        verifyStopped()
+    private fun verifyLayout(small: Boolean = false) {
+        if (!small) verifyStopped()
         instrumentation.waitForIdleSync()
         instrumentation.runOnMainSync {
             val current = requireNotNull(activity)
             val providerResources = context.packageManager.getResourcesForApplication(TARGET_PACKAGE)
+            val panelId = providerResources.getIdentifier("widget_panel", "id", TARGET_PACKAGE)
+            val panel = current.widgetView.findViewById<android.view.View>(panelId)
+            val background = panel.background as GradientDrawable
+            assertEquals("Widget background must be translucent", 204,
+                Color.alpha(requireNotNull(background.color).defaultColor))
             val hostBounds = Rect()
             assertTrue(current.widgetView.getGlobalVisibleRect(hostBounds))
             for (name in listOf("widget_airport_source", "widget_station_source",
@@ -214,8 +281,10 @@ internal class WidgetSmokeScenario(
                 val layout = requireNotNull(text.layout)
                 assertTrue("Vertically clipped widget text: $name",
                     layout.getLineBottom(layout.lineCount - 1) <= text.height - text.totalPaddingTop - text.totalPaddingBottom)
-                for (line in 0 until layout.lineCount) {
-                    assertEquals("Truncated widget text: $name", 0, layout.getEllipsisCount(line))
+                if (!small) {
+                    for (line in 0 until layout.lineCount) {
+                        assertEquals("Truncated widget text: $name", 0, layout.getEllipsisCount(line))
+                    }
                 }
             }
         }
