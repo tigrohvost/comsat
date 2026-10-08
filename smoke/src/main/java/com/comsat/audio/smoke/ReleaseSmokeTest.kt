@@ -1,6 +1,7 @@
 package com.comsat.audio.smoke
 
 import android.content.pm.ApplicationInfo
+import android.graphics.Rect
 import android.net.ConnectivityManager
 import android.os.SystemClock
 import android.view.KeyEvent
@@ -9,6 +10,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.BySelector
 import androidx.test.uiautomator.Configurator
+import androidx.test.uiautomator.StaleObjectException
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
@@ -180,9 +182,20 @@ class ReleaseSmokeTest {
 
     private fun verifyTouchTarget(description: String) {
         val minimumSize = (48 * context.resources.displayMetrics.density).toInt() - 1
-        val bounds = visible(By.desc(description)).visibleBounds
-        assertTrue("Clipped or undersized control: $description ($bounds)",
-            bounds.height() >= minimumSize && bounds.width() >= minimumSize)
+        val deadline = SystemClock.uptimeMillis() + 5_000
+        var bounds: Rect? = null
+        do {
+            try {
+                // Rotation/font changes can replace a node between discovery and measurement.
+                // Reacquire it until layout settles; persistent clipping still fails below.
+                bounds = device.findObject(By.desc(description))?.visibleBounds
+                if (bounds != null && bounds.height() >= minimumSize && bounds.width() >= minimumSize) return
+            } catch (_: StaleObjectException) {
+                bounds = null
+            }
+            SystemClock.sleep(50)
+        } while (SystemClock.uptimeMillis() < deadline)
+        assertTrue("Missing, clipped or undersized control: $description ($bounds)", false)
     }
 
     private fun screenshot(name: String) {
