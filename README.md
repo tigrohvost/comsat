@@ -92,8 +92,10 @@ Android Release → Run workflow** on the desired branch. The `COMSAT-…` artif
 contains the signed APK, its SHA-256 checksum and `build-info.json` with the
 source commit. The workflow also launches the minified APK on an offline Android
 emulator and checks selectors, stopping playback, saved selections, themes,
-the fixed main panel in landscape and with large text. Screenshots and test
-reports are uploaded separately. Repository signing secrets are required for either mode.
+the fixed main panel at 320 × 568 dp and in landscape with large text. Screenshots and test
+reports are uploaded separately. Each published release also includes
+`COMSAT-screenshots.zip` with captures of the tested APK in all three themes,
+landscape and large text. Repository signing secrets are required for either mode.
 UI Automator runs in the separate `smoke` module and process, preserving the
 app's normal release optimization and startup path.
 
@@ -102,8 +104,8 @@ Set the repository secrets `COMSAT_KEYSTORE_BASE64` and
 matching semantic tag:
 
 ```bash
-git tag -a v1.3.4 -m "COMSAT 1.3.4"
-git push origin v1.3.4
+git tag -a v1.3.5 -m "COMSAT 1.3.5"
+git push origin v1.3.5
 ```
 
 The release workflow rejects a tag that does not match the app version. A
@@ -113,7 +115,8 @@ release.
 
 For the same smoke test locally, use a disposable emulator with signing
 configured and run `bash tools/run_release_smoke.sh`. It disables the emulator's
-Wi-Fi and mobile data. Regular CI also tests and builds the unsigned release
+Wi-Fi and mobile data and refuses physical devices. Set `ANDROID_SERIAL` if
+multiple emulators are connected. Regular CI also tests and builds the unsigned release
 variant on every pull request and push to `main`.
 
 </details>

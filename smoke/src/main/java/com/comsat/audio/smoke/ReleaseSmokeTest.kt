@@ -30,10 +30,15 @@ class ReleaseSmokeTest {
 
     @After
     fun restoreDisplay() {
-        screenshot("final")
-        device.executeShellCommand("settings put system font_scale 1.0")
-        device.setOrientationNatural()
-        device.unfreezeRotation()
+        try {
+            screenshot("final")
+        } finally {
+            device.executeShellCommand("settings put system font_scale 1.0")
+            device.executeShellCommand("wm size reset")
+            device.executeShellCommand("wm density reset")
+            device.setOrientationNatural()
+            device.unfreezeRotation()
+        }
     }
 
     @Test
@@ -55,7 +60,7 @@ class ReleaseSmokeTest {
             click()
             text = "KJFK"
         }
-        visible(By.desc("Clear search"))
+        verifyTouchTarget("Clear search")
         screenshot("airports-filtered")
         device.pressKeyCode(KeyEvent.KEYCODE_ENTER) // submit search and dismiss keyboard
         visible(By.textContains("John F. Kennedy Intl")).click()
@@ -75,12 +80,15 @@ class ReleaseSmokeTest {
         visible(By.desc("Clear search")).click()
         device.pressKeyCode(KeyEvent.KEYCODE_ENTER)
         visible(By.textContains("Rain Radio")).click()
+        visible(By.textContains("STREAM OFFLINE"))
         visible(By.desc("Pause ambient")).click()
         visible(By.desc("Play ambient"))
         Thread.sleep(6_000) // pass the first reconnect deadline
         assertFalse("Cancelled playback restarted", device.hasObject(By.desc("Pause ambient")))
 
-        // Recreate the activity and ViewModel; saved selections must survive.
+        // Kill the process as well as its activity; persistence must survive
+        // without a retained ViewModel or still-bound foreground service.
+        device.executeShellCommand("am force-stop $TARGET_PACKAGE")
         launchPanel()
         visible(By.textContains("KJFK"))
         visible(By.text("RAIN RADIO"))
@@ -101,6 +109,25 @@ class ReleaseSmokeTest {
         launchPanel()
         verifyFixedPanel()
         screenshot("large-text-panel")
+        device.setOrientationLeft()
+        launchPanel()
+        assertTrue("Expected landscape with enlarged text",
+            device.displayWidth > device.displayHeight &&
+                context.resources.configuration.fontScale >= 1.49f)
+        verifyFixedPanel()
+        screenshot("landscape-large-text-panel")
+
+        // A 320 x 568 dp handset must preserve the same minimum touch targets.
+        device.setOrientationNatural()
+        device.executeShellCommand("settings put system font_scale 1.0")
+        device.executeShellCommand("wm size 640x1136")
+        device.executeShellCommand("wm density 320")
+        launchPanel()
+        assertTrue("Expected a 320 x 568 dp display",
+            device.displayWidth == 640 && device.displayHeight == 1136 &&
+                context.resources.displayMetrics.density == 2f)
+        verifyFixedPanel()
+        screenshot("small-panel-320x568")
         assertNull("Emulator reconnected during the offline test", connectivity.activeNetwork)
     }
 
@@ -138,15 +165,22 @@ class ReleaseSmokeTest {
     }
 
     private fun verifyFixedPanel() {
-        val minimumControlHeight = (48 * context.resources.displayMetrics.density).toInt() - 1
-        for (description in listOf("Play ATC", "Play ambient", "ATC volume", "ambient volume")) {
-            val control = visible(By.desc(description))
-            assertTrue("Clipped control: $description",
-                control.visibleBounds.height() >= minimumControlHeight)
+        for (description in listOf(
+            "Play ATC", "Play ambient", "ATC volume", "ambient volume",
+            "Change airport", "Change station"
+        )) {
+            verifyTouchTarget(description)
         }
         visible(By.textStartsWith("VER "))
         assertFalse("Main panel must fit without scrolling",
             device.hasObject(By.pkg(TARGET_PACKAGE).scrollable(true)))
+    }
+
+    private fun verifyTouchTarget(description: String) {
+        val minimumSize = (48 * context.resources.displayMetrics.density).toInt() - 1
+        val bounds = visible(By.desc(description)).visibleBounds
+        assertTrue("Clipped or undersized control: $description ($bounds)",
+            bounds.height() >= minimumSize && bounds.width() >= minimumSize)
     }
 
     private fun screenshot(name: String) {

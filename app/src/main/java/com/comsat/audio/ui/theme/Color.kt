@@ -18,7 +18,7 @@ val Surface      = Color(0xFF0C0C15)
 val SurfaceVar   = Color(0xFF131320)
 val Outline      = Color(0xFF252540)
 val TextPrimary  = Color(0xFFDDE8FF)
-val TextSecondary = Color(0xFF6878A8)
+val TextSecondary = Color(0xFF7081B0)
 val Scrim        = Color(0x99000000)
 
 // Light theme (high-contrast day mode, still cyberpunk)
@@ -33,6 +33,8 @@ val MagentaDay     = Color(0xFF990099)
 val GreenDay       = Color(0xFF00784D)
 val TextPrimaryDay = Color(0xFF080B1A)
 val TextSecDay     = Color(0xFF4A5680)
+val WarningDay     = Color(0xFF805500)
+val ErrorDay       = Color(0xFFC9183B)
 
 // ─── Nord · Polar Night ───────────────────────────────────────────────────────
 // nordtheme.com — Polar Night (backgrounds) + Snow Storm (text) + Frost/Aurora (accents)
@@ -41,9 +43,9 @@ val NordSurface   = Color(0xFF3B4252)   // nord1
 val NordSurfVar   = Color(0xFF434C5E)   // nord2
 val NordOutline   = Color(0xFF4C566A)   // nord3
 val NordText      = Color(0xFFD8DEE9)   // nord4  — Snow Storm primary text
-val NordTextSec   = Color(0xFF81A1C1)   // nord9  — Frost medium blue (secondary text)
+val NordTextSec   = Color(0xFFA8C0D8)   // Frost blue, lifted for small text on panel surfaces
 val NordPrimary   = Color(0xFF88C0D0)   // nord8  — Frost light blue (primary accent)
 val NordSecondary = Color(0xFFB48EAD)   // nord15 — Aurora purple (secondary accent)
 val NordTertiary  = Color(0xFFA3BE8C)   // nord14 — Aurora green (status/tertiary)
-val NordError     = Color(0xFFBF616A)   // nord11 — Aurora red
+val NordError     = Color(0xFFE49AA1)   // Aurora red, lifted for small fault readouts
 val NordYellow    = Color(0xFFEBCB8B)   // nord13 — Aurora yellow (warning/caution)

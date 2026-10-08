@@ -38,6 +38,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
@@ -175,6 +177,7 @@ private fun StationCard(station: SomaStation, isSelected: Boolean, onClick: () -
                 else MaterialTheme.colorScheme.surface
             )
             .clickable(onClick = onClick)
+            .semantics { selected = isSelected }
             .padding(12.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -215,7 +218,7 @@ private fun StationCard(station: SomaStation, isSelected: Boolean, onClick: () -
                 Text(
                     text = "${station.listeners} listeners",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             if (station.description.isNotBlank()) {
@@ -224,7 +227,7 @@ private fun StationCard(station: SomaStation, isSelected: Boolean, onClick: () -
                         if (station.description.length > 80) "$it…" else it
                     },
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }

@@ -114,8 +114,9 @@ class AudioService : Service() {
 
     private lateinit var audioManager: AudioManager
     private var focusRequest: AudioFocusRequest? = null
+    private var focusHeld = false
     private var ducked = false
-    private var resumeOnFocusGain = false
+    private val focusResumePlan = FocusResumePlan()
 
     private var baseAtcVolume = 1f
     private var baseSomaVolume = 1f
@@ -123,24 +124,22 @@ class AudioService : Service() {
     private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
         when (change) {
             AudioManager.AUDIOFOCUS_LOSS -> {
-                resumeOnFocusGain = false
+                focusHeld = false
                 pauseAll()
                 abandonFocus()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                resumeOnFocusGain = _atcState.value.status in PAUSABLE_STATUSES ||
-                    _somaState.value.status in PAUSABLE_STATUSES
-                pauseAll()
+                focusHeld = false
+                focusResumePlan.remember(_atcState.value.canPause, _somaState.value.canPause)
+                pauseAll(clearResumePlan = false)
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 ducked = true
                 applyVolumes()
             }
             AudioManager.AUDIOFOCUS_GAIN -> {
-                ducked = false
-                applyVolumes()
-                if (resumeOnFocusGain) resumeAll()
-                resumeOnFocusGain = false
+                if (focusRequest == null) return@OnAudioFocusChangeListener
+                onFocusGranted()
             }
         }
     }
@@ -199,7 +198,9 @@ class AudioService : Service() {
 
     override fun onDestroy() {
         unregisterReceiver(noisyReceiver)
-        somaNextTrackCall?.cancel()
+        // Invalidate callbacks as well as cancelling the socket: an HTTP
+        // response may already be on its way back to the main thread.
+        clearChainedPlayback()
         abandonFocus()
         mediaSession.release()
         compositePlayer.release()
@@ -210,8 +211,8 @@ class AudioService : Service() {
     }
 
     private fun requestFocus(): Boolean {
-        if (focusRequest != null) return true
-        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+        if (focusHeld) return true
+        val request = focusRequest ?: AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
             .setAudioAttributes(
                 android.media.AudioAttributes.Builder()
                     .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
@@ -222,13 +223,27 @@ class AudioService : Service() {
             .build()
         val granted = audioManager.requestAudioFocus(request) ==
             AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-        if (granted) focusRequest = request
+        if (granted) {
+            focusRequest = request
+            // A synchronous grant need not also emit AUDIOFOCUS_GAIN.
+            onFocusGranted()
+        }
         return granted
+    }
+
+    private fun onFocusGranted() {
+        focusHeld = true
+        ducked = false
+        applyVolumes()
+        val interrupted = focusResumePlan.take()
+        resumeAll(atc = interrupted.atc, soma = interrupted.soma)
     }
 
     private fun abandonFocus() {
         focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
         focusRequest = null
+        focusHeld = false
+        focusResumePlan.clear()
         ducked = false
     }
 
@@ -241,20 +256,26 @@ class AudioService : Service() {
     // ─── Public controls ──────────────────────────────────────────────────────
 
     fun playAtc(url: String, label: String? = null) {
+        focusResumePlan.cancelAtc()
         atcUrl = url
         atcLabel = label
         atcRetryAttempt = 0
         handler.removeCallbacksAndMessages(atcReconnectToken)
-        requestFocus()
+        atcPlayer.stop()
         _atcState.value = StreamState(StreamStatus.LOADING)
         atcPlayer.setMediaItem(MediaItem.fromUri(url))
-        atcPlayer.prepare()
-        atcPlayer.play()
         ensureForeground()
+        if (requestFocus()) {
+            atcPlayer.prepare()
+            atcPlayer.play()
+        } else {
+            _atcState.value = StreamState(StreamStatus.PAUSED)
+        }
         updateNotification()
     }
 
     fun stopAtc() {
+        focusResumePlan.cancelAtc()
         atcUrl = null
         atcLabel = null
         atcRetryAttempt = 0
@@ -267,24 +288,30 @@ class AudioService : Service() {
     }
 
     fun playSoma(url: String, label: String? = null) {
+        focusResumePlan.cancelSoma()
         clearChainedPlayback()
         somaUrl = url
         somaLabel = label
         somaRetryAttempt = 0
         handler.removeCallbacksAndMessages(somaReconnectToken)
-        requestFocus()
+        somaPlayer.stop()
         _somaNowPlaying.value = null
         _somaState.value = StreamState(StreamStatus.LOADING)
         somaPlayer.setMediaItem(MediaItem.fromUri(url))
-        somaPlayer.prepare()
-        somaPlayer.play()
         ensureForeground()
+        if (requestFocus()) {
+            somaPlayer.prepare()
+            somaPlayer.play()
+        } else {
+            _somaState.value = StreamState(StreamStatus.PAUSED)
+        }
         updateNotification()
     }
 
     // Track-chained station: no continuous stream URL; resolve the first track
     // via /next-track and keep chaining from the player's STATE_ENDED.
     fun playSomaChained(apiBase: String, label: String? = null) {
+        focusResumePlan.cancelSoma()
         clearChainedPlayback()
         // Do not let the previously selected SomaFM stream continue underneath
         // while the first chained track is being resolved.
@@ -295,15 +322,16 @@ class AudioService : Service() {
         somaLabel = label
         somaRetryAttempt = 0
         handler.removeCallbacksAndMessages(somaReconnectToken)
-        requestFocus()
         _somaNowPlaying.value = null
         _somaState.value = StreamState(StreamStatus.LOADING)
         ensureForeground()
+        if (requestFocus()) fetchNextChainedTrack()
+        else _somaState.value = StreamState(StreamStatus.PAUSED)
         updateNotification()
-        fetchNextChainedTrack()
     }
 
     fun stopSoma() {
+        focusResumePlan.cancelSoma()
         clearChainedPlayback()
         somaUrl = null
         somaLabel = null
@@ -428,7 +456,9 @@ class AudioService : Service() {
         if (anyActive) pauseAll() else resumeAll()
     }
 
-    private fun pauseAll() {
+    private fun pauseAll(clearResumePlan: Boolean = true) {
+        // A transport pause or unplug cancels automatic focus recovery.
+        if (clearResumePlan) focusResumePlan.clear()
         if (_atcState.value.status in PAUSABLE_STATUSES) {
             handler.removeCallbacksAndMessages(atcReconnectToken)
             atcPlayer.pause()
@@ -450,18 +480,21 @@ class AudioService : Service() {
         updateNotification()
     }
 
-    private fun resumeAll() {
-        if (_atcState.value.status == StreamStatus.PAUSED ||
-            _somaState.value.status == StreamStatus.PAUSED
-        ) requestFocus()
-        resumeStream(atcPlayer, atcUrl, _atcState, rejoinLiveEdge = true)
-        if (somaNextTrackApiBase != null && somaUrl == null &&
+    private fun resumeAll(atc: Boolean = true, soma: Boolean = true) {
+        val resumeAtc = atc && _atcState.value.status == StreamStatus.PAUSED
+        val resumeSoma = soma && _somaState.value.status == StreamStatus.PAUSED
+        if (!resumeAtc && !resumeSoma) return
+        if (!requestFocus()) return
+        if (atc) focusResumePlan.cancelAtc()
+        if (soma) focusResumePlan.cancelSoma()
+        if (resumeAtc) resumeStream(atcPlayer, atcUrl, _atcState, rejoinLiveEdge = true)
+        if (resumeSoma && somaNextTrackApiBase != null && somaUrl == null &&
             _somaState.value.status == StreamStatus.PAUSED
         ) {
             // Chained station paused before its first track resolved
             _somaState.value = StreamState(StreamStatus.LOADING)
             fetchNextChainedTrack()
-        } else {
+        } else if (resumeSoma) {
             resumeStream(
                 somaPlayer, somaUrl, _somaState,
                 // A chained track is a plain file, not a live stream — resume
@@ -539,6 +572,7 @@ class AudioService : Service() {
                 // broadcast — fetch the next one and keep going.
                 if (!isAtc && state == Player.STATE_ENDED && somaNextTrackApiBase != null) {
                     somaUrl = null
+                    if (!stateFlow.value.canPause) return
                     stateFlow.value = StreamState(StreamStatus.LOADING)
                     fetchNextChainedTrack()
                     updateNotification()
@@ -581,6 +615,9 @@ class AudioService : Service() {
 
             override fun onPlayerError(error: PlaybackException) {
                 val stateFlow = if (isAtc) _atcState else _somaState
+                // Paused players can still fail while filling their buffer.
+                // Leave them paused; resumeStream will prepare the idle player.
+                if (!stateFlow.value.canPause) return
                 val url = if (isAtc) atcUrl else somaUrl
                 val attempt = if (isAtc) ++atcRetryAttempt else ++somaRetryAttempt
                 stateFlow.value = StreamState(StreamStatus.RECONNECTING, friendlyErrorMessage(error))

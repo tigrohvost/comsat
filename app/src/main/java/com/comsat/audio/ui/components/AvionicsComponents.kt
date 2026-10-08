@@ -47,11 +47,12 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.comsat.audio.data.model.AtisData
 import com.comsat.audio.data.model.StreamStatus
-import com.comsat.audio.ui.theme.NordYellow
+import com.comsat.audio.ui.theme.LocalWarningColor
 
 // ─── Avionics module: bordered panel with LED header strip ───────────────────
 
@@ -86,6 +87,8 @@ fun AvionicsModule(
                 text = title,
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
             StatusPlacard(status)
@@ -107,7 +110,7 @@ fun AvionicsModule(
 fun ModuleLed(status: StreamStatus, accent: Color, modifier: Modifier = Modifier) {
     val color = when (status) {
         StreamStatus.PLAYING -> accent
-        StreamStatus.BUFFERING, StreamStatus.LOADING, StreamStatus.RECONNECTING -> NordYellow
+        StreamStatus.BUFFERING, StreamStatus.LOADING, StreamStatus.RECONNECTING -> LocalWarningColor.current
         StreamStatus.ERROR -> MaterialTheme.colorScheme.error
         StreamStatus.PAUSED, StreamStatus.IDLE -> MaterialTheme.colorScheme.outline
     }
@@ -136,7 +139,7 @@ fun StatusPlacard(status: StreamStatus, modifier: Modifier = Modifier) {
     }
     val color = when (status) {
         StreamStatus.PLAYING -> MaterialTheme.colorScheme.tertiary
-        StreamStatus.BUFFERING, StreamStatus.LOADING, StreamStatus.RECONNECTING -> NordYellow
+        StreamStatus.BUFFERING, StreamStatus.LOADING, StreamStatus.RECONNECTING -> LocalWarningColor.current
         StreamStatus.ERROR -> MaterialTheme.colorScheme.error
         StreamStatus.PAUSED, StreamStatus.IDLE -> MaterialTheme.colorScheme.onSurfaceVariant
     }
@@ -195,12 +198,14 @@ fun TickFader(
             }
             .focusable()
             .pointerInput(Unit) {
-                detectTapGestures { pos -> changeValue((pos.x / size.width).coerceIn(0f, 1f)) }
+                detectTapGestures { pos ->
+                    if (size.width > 0) changeValue((pos.x / size.width).coerceIn(0f, 1f))
+                }
             }
             .pointerInput(Unit) {
                 detectHorizontalDragGestures { change, _ ->
                     change.consume()
-                    changeValue((change.position.x / size.width).coerceIn(0f, 1f))
+                    if (size.width > 0) changeValue((change.position.x / size.width).coerceIn(0f, 1f))
                 }
             }
     ) {
@@ -220,7 +225,7 @@ fun TickFader(
         drawLine(outline, Offset(0f, cy), Offset(size.width, cy), 1.dp.toPx())
         drawLine(accent, Offset(0f, cy), Offset(size.width * value, cy), 2.dp.toPx())
         // Rectangular thumb with an accent stripe
-        val thumbW = 10.dp.toPx()
+        val thumbW = minOf(10.dp.toPx(), size.width)
         val thumbH = 20.dp.toPx()
         val tx = (size.width * value - thumbW / 2).coerceIn(0f, size.width - thumbW)
         drawRoundRect(
@@ -303,9 +308,9 @@ fun FooterPlacard(
     modifier: Modifier = Modifier,
     compact: Boolean = false
 ) {
-    val dim = MaterialTheme.colorScheme.outline
+    val dim = MaterialTheme.colorScheme.onSurfaceVariant
     Column(modifier = modifier.fillMaxWidth()) {
-        HorizontalDivider(color = dim)
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -315,7 +320,7 @@ fun FooterPlacard(
             Text(
                 text = if (netOnline) "NET ● ONLINE" else "NET ○ OFFLINE",
                 style = MaterialTheme.typography.labelSmall,
-                color = if (netOnline) dim else NordYellow
+                color = if (netOnline) dim else LocalWarningColor.current
             )
             Text(
                 text = "COMM $activeStreams/2",

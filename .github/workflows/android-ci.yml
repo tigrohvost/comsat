@@ -46,6 +46,7 @@ jobs:
 
       - name: Verify app
         run: |
+          python3 -m unittest discover -s tools -p 'test_*.py'
           ./gradlew testDebugUnitTest lintDebug assembleDebug --stacktrace
           ./gradlew -Pcomsat.testBuildType=release testReleaseUnitTest lintRelease assembleRelease --stacktrace
 

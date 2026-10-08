@@ -37,6 +37,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -113,7 +115,7 @@ fun MainScreen(
                     sideBySide = sideBySide,
                     spacing = panelSpacing,
                     modifier = Modifier.weight(1f)
-                ) { moduleModifier ->
+                ) { moduleModifier, combinedControls ->
                     AvionicsModule(
                         title = "COMM 1 · ATC",
                         status = atcState.status,
@@ -139,6 +141,7 @@ fun MainScreen(
                             channel = "ATC",
                             hasSource = airport != null,
                             compact = compact,
+                            combinedControls = combinedControls,
                             cornerContent = {
                                 AtisReadout(
                                     data = atisData,
@@ -171,7 +174,8 @@ fun MainScreen(
                             accent = MaterialTheme.colorScheme.tertiary,
                             channel = "ambient",
                             hasSource = station != null,
-                            compact = compact
+                            compact = compact,
+                            combinedControls = combinedControls
                         )
                     }
                 }
@@ -192,21 +196,28 @@ private fun StreamPanels(
     sideBySide: Boolean,
     spacing: Dp,
     modifier: Modifier = Modifier,
-    content: @Composable (Modifier) -> Unit
+    content: @Composable (Modifier, Boolean) -> Unit
 ) {
-    if (sideBySide) {
-        Row(
-            modifier = modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(spacing)
-        ) {
-            content(Modifier.weight(1f).fillMaxHeight())
-        }
-    } else {
-        Column(
-            modifier = modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(spacing)
-        ) {
-            content(Modifier.weight(1f).fillMaxWidth())
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val moduleHeight = if (sideBySide) maxHeight else (maxHeight - spacing) / 2f
+        // Keep both controls at 48 dp when the window or large text leaves
+        // too little height for separate fader and transport rows.
+        val combinedControls = moduleHeight <
+            260.dp * LocalDensity.current.fontScale.coerceAtLeast(1f)
+        if (sideBySide) {
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                horizontalArrangement = Arrangement.spacedBy(spacing)
+            ) {
+                content(Modifier.weight(1f).fillMaxHeight(), combinedControls)
+            }
+        } else {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(spacing)
+            ) {
+                content(Modifier.weight(1f).fillMaxWidth(), combinedControls)
+            }
         }
     }
 }
@@ -329,8 +340,15 @@ private fun ColumnScope.StreamModuleBody(
     channel: String,
     hasSource: Boolean,
     compact: Boolean,
+    combinedControls: Boolean,
     cornerContent: (@Composable () -> Unit)? = null
 ) {
+    val toggleDescription = when {
+        state.canPause -> "Pause $channel"
+        hasSource -> "Play $channel"
+        channel == "ATC" -> "Choose airport"
+        else -> "Choose station"
+    }
     // Station name + change button
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -356,27 +374,49 @@ private fun ColumnScope.StreamModuleBody(
                 )
             }
         }
-        PlacardButton(text = "CHANGE", onClick = onSelectSource)
+        PlacardButton(
+            text = "CHANGE",
+            onClick = onSelectSource,
+            modifier = Modifier.semantics {
+                contentDescription = if (channel == "ATC") "Change airport" else "Change station"
+            }
+        )
     }
 
-    SpectrumBar(
-        bands = spectrum,
-        active = state.isActive,
-        volume = volume,
-        accent = accent,
-        modifier = Modifier.weight(1f)
-    )
+    Row(
+        modifier = Modifier.weight(1f).fillMaxWidth(),
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        SpectrumBar(
+            bands = spectrum,
+            active = state.isActive,
+            volume = volume,
+            accent = accent,
+            modifier = Modifier.weight(1f).fillMaxHeight()
+        )
+        if (combinedControls) cornerContent?.invoke()
+    }
 
     // Fader with digital readout
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(if (combinedControls) 8.dp else 12.dp)
     ) {
-        Text(
-            text = "VOL",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        if (combinedControls) {
+            SquareToggleButton(
+                active = state.canPause,
+                accent = accent,
+                onClick = onToggle,
+                description = toggleDescription
+            )
+        } else {
+            Text(
+                text = "VOL",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         TickFader(
             value = volume,
             onValueChange = onVolumeChange,
@@ -393,23 +433,20 @@ private fun ColumnScope.StreamModuleBody(
         )
     }
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Bottom
-    ) {
-        SquareToggleButton(
-            active = state.canPause,
-            accent = accent,
-            onClick = onToggle,
-            description = when {
-                state.canPause -> "Pause $channel"
-                hasSource -> "Play $channel"
-                channel == "ATC" -> "Choose airport"
-                else -> "Choose station"
-            }
-        )
-        Spacer(modifier = Modifier.weight(1f))
-        cornerContent?.invoke()
+    if (!combinedControls) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Bottom
+        ) {
+            SquareToggleButton(
+                active = state.canPause,
+                accent = accent,
+                onClick = onToggle,
+                description = toggleDescription
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            cornerContent?.invoke()
+        }
     }
 
     if (state.error != null) {

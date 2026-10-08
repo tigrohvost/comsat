@@ -41,7 +41,7 @@ private val LightColors = lightColorScheme(
     surfaceVariant   = SurfaceVarDay,
     onSurfaceVariant = TextSecDay,
     outline          = OutlineDay,
-    error            = RedError
+    error            = ErrorDay
 )
 
 private val NordColors = darkColorScheme(
@@ -64,6 +64,7 @@ private val NordColors = darkColorScheme(
 
 val LocalThemeMode = staticCompositionLocalOf { ThemeMode.DARK }
 val LocalSetTheme  = staticCompositionLocalOf<(ThemeMode) -> Unit> { {} }
+val LocalWarningColor = staticCompositionLocalOf { NordYellow }
 
 @Composable
 fun ComsatTheme(
@@ -73,7 +74,8 @@ fun ComsatTheme(
 ) {
     CompositionLocalProvider(
         LocalThemeMode provides mode,
-        LocalSetTheme  provides onSetTheme
+        LocalSetTheme  provides onSetTheme,
+        LocalWarningColor provides if (mode == ThemeMode.LIGHT) WarningDay else NordYellow
     ) {
         MaterialTheme(
             colorScheme = when (mode) {

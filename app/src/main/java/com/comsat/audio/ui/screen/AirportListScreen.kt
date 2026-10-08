@@ -34,6 +34,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.comsat.audio.data.model.Airport
@@ -155,6 +158,14 @@ private fun AirportRow(airport: Airport, isSelected: Boolean, onClick: () -> Uni
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
+            .semantics {
+                selected = isSelected
+                stateDescription = when {
+                    !airport.probed -> "Availability not checked"
+                    airport.isOnline -> "Online"
+                    else -> "Offline"
+                }
+            }
             .background(
                 if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
                 else MaterialTheme.colorScheme.background
@@ -190,7 +201,7 @@ private fun AirportRow(airport: Airport, isSelected: Boolean, onClick: () -> Uni
             Text(
                 text = "OFFLINE",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }

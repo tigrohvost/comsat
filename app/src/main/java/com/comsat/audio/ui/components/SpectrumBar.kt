@@ -46,22 +46,23 @@ fun SpectrumBar(
     modifier: Modifier = Modifier
 ) {
     val latestBands by rememberUpdatedState(bands)
-    val latestActive by rememberUpdatedState(active)
     val latestVolume by rememberUpdatedState(volume)
 
     val levels = remember { FloatArray(SpectrumAnalysis.BANDS) }
     val peaks = remember { FloatArray(SpectrumAnalysis.BANDS) }
     var frame by remember { mutableLongStateOf(0L) }
 
-    // Frame loop drives decay physics; pauses with the composition (offscreen)
-    LaunchedEffect(Unit) {
+    // Let the peaks settle after pausing/muting, then stop requesting frames.
+    // An idle audio panel should not redraw both spectra at display refresh rate.
+    val animating = active && volume > 0f
+    LaunchedEffect(animating) {
         var last = withFrameNanos { it }
-        while (true) {
+        while (animating || peaks.any { it > 0f }) {
             val now = withFrameNanos { it }
             val dt = ((now - last) / 1e9f).coerceAtMost(0.1f)
             last = now
             val src = latestBands
-            val gain = if (latestActive) latestVolume else 0f
+            val gain = if (animating) latestVolume else 0f
             for (i in levels.indices) {
                 val target = (src.getOrElse(i) { 0f } * gain).coerceIn(0f, 1f)
                 levels[i] = max(target, levels[i] - BAR_DECAY * dt)
@@ -89,7 +90,8 @@ fun SpectrumBar(
             @Suppress("UNUSED_EXPRESSION") frame  // invalidate on every physics tick
             val n = levels.size
             val bw = size.width / n
-            val usable = size.height - 8.dp.toPx()
+            val usable = (size.height - 8.dp.toPx()).coerceAtLeast(0f)
+            val gap = minOf(2.dp.toPx(), bw * 0.2f)
             val gradient = Brush.verticalGradient(
                 0f to accent.copy(alpha = 0.75f),
                 1f to accent.copy(alpha = 0.35f),
@@ -101,15 +103,15 @@ fun SpectrumBar(
                 if (h > 0.5f) {
                     drawRect(
                         brush = gradient,
-                        topLeft = Offset(i * bw + 2.dp.toPx(), size.height - h),
-                        size = Size(bw - 4.dp.toPx(), h)
+                        topLeft = Offset(i * bw + gap, size.height - h),
+                        size = Size(bw - gap * 2, h)
                     )
                 }
                 val peakY = size.height - peaks[i] * usable - 3.dp.toPx()
                 drawRect(
                     color = capColor,
-                    topLeft = Offset(i * bw + 2.dp.toPx(), peakY),
-                    size = Size(bw - 4.dp.toPx(), 1.5.dp.toPx())
+                    topLeft = Offset(i * bw + gap, peakY),
+                    size = Size(bw - gap * 2, 1.5.dp.toPx())
                 )
             }
         }
@@ -119,7 +121,7 @@ fun SpectrumBar(
             letterSpacing = 2.sp,
             textAlign = TextAlign.End,
             style = MaterialTheme.typography.labelSmall.copy(fontSize = 7.sp),
-            color = outline,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(top = 3.dp, end = 6.dp)
