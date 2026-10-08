@@ -23,7 +23,18 @@ object WidgetViews {
     fun render(
         context: Context, model: WidgetModel, options: Bundle, format: WidgetFormat = WidgetFormat.FULL
     ): RemoteViews {
-        if (format != WidgetFormat.FULL) return createSmall(context, model, format)
+        if (format != WidgetFormat.FULL) {
+            val minimumHeight = if (format == WidgetFormat.SLIM) 40 else 80
+            val comfortableHeight = if (format == WidgetFormat.SLIM) 56 else 110
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                return RemoteViews(mapOf(
+                    SizeF(110f, minimumHeight.toFloat()) to createSmall(context, model, format, short = true),
+                    SizeF(110f, comfortableHeight.toFloat()) to createSmall(context, model, format, short = false)
+                ))
+            }
+            return createSmall(context, model, format,
+                short = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, comfortableHeight) < comfortableHeight)
+        }
         val largeText = context.resources.configuration.fontScale > 1.2f
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             // The launcher chooses a fitting view on resize without starting our process.
@@ -70,9 +81,12 @@ object WidgetViews {
         }
     }
 
-    private fun createSmall(context: Context, model: WidgetModel, format: WidgetFormat): RemoteViews {
+    private fun createSmall(
+        context: Context, model: WidgetModel, format: WidgetFormat, short: Boolean
+    ): RemoteViews {
         val palette = palette(model.themeMode)
         val slim = format == WidgetFormat.SLIM
+        val largeText = context.resources.configuration.fontScale > 1.2f
         return RemoteViews(context.packageName,
             if (slim) R.layout.comsat_widget_slim else R.layout.comsat_widget_square).apply {
             setInt(R.id.widget_panel, "setBackgroundResource", palette.background)
@@ -84,11 +98,28 @@ object WidgetViews {
                 setTextColor(R.id.widget_station_label,
                     if (model.themeMode == ThemeMode.NORDIC) palette.secondary else palette.radio)
             }
-            // Keep two rows within one launcher cell even with enlarged system text.
-            if (context.resources.configuration.fontScale > 1.2f) {
-                val textSize = if (slim) 12f else 16f
-                setTextViewTextSize(R.id.widget_airport_source, TypedValue.COMPLEX_UNIT_SP, textSize)
-                setTextViewTextSize(R.id.widget_station_source, TypedValue.COMPLEX_UNIT_SP, textSize)
+            // Launchers may calculate spans against both portrait and landscape grids.
+            // Support their shorter cells without forcing an extra row in the picker.
+            val textSize = when {
+                slim && short -> if (largeText) 10f else 12f
+                slim -> if (largeText) 12f else 14f
+                short && largeText -> 12f
+                largeText -> 16f
+                else -> 18f
+            }
+            setTextViewTextSize(R.id.widget_airport_source, TypedValue.COMPLEX_UNIT_SP, textSize)
+            setTextViewTextSize(R.id.widget_station_source, TypedValue.COMPLEX_UNIT_SP, textSize)
+            if (short) {
+                val density = context.resources.displayMetrics.density
+                setViewPadding(R.id.widget_panel, (8 * density).toInt(), (2 * density).toInt(),
+                    (8 * density).toInt(), (2 * density).toInt())
+                val statusSize = if (slim) 10f else 8f
+                setTextViewTextSize(R.id.widget_airport_status, TypedValue.COMPLEX_UNIT_SP, statusSize)
+                setTextViewTextSize(R.id.widget_station_status, TypedValue.COMPLEX_UNIT_SP, statusSize)
+                if (!slim && largeText) {
+                    setTextViewTextSize(R.id.widget_airport_label, TypedValue.COMPLEX_UNIT_SP, 8f)
+                    setTextViewTextSize(R.id.widget_station_label, TypedValue.COMPLEX_UNIT_SP, 8f)
+                }
             }
             source(context, R.id.widget_airport_source, null, R.id.widget_airport_status,
                 model.airportIcao, model.airportName, R.string.widget_choose_airport,

@@ -1,6 +1,7 @@
 package com.comsat.audio.smoke
 
 import android.appwidget.AppWidgetHost
+import android.appwidget.AppWidgetHostView
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
 import android.content.ComponentName
@@ -157,6 +158,15 @@ internal class WidgetSmokeScenario(
             }
             assertEquals(2, provider.targetCellWidth)
             assertEquals(if (name.contains("Square")) 2 else 1, provider.targetCellHeight)
+            // Launcher3/Lawnchair considers a short landscape grid even in portrait.
+            // A minimum taller than the target span makes it ignore targetCellHeight.
+            val padding = AppWidgetHostView.getDefaultPaddingForWidget(context, provider.provider, null)
+            val landscapeCellHeight = 56 * context.resources.displayMetrics.density
+            val minimumRows = kotlin.math.ceil(
+                (provider.minResizeHeight + padding.top + padding.bottom) / landscapeCellHeight
+            ).toInt()
+            assertTrue("$name forces extra rows in a short launcher grid",
+                minimumRows <= provider.targetCellHeight)
             assertTrue("Cannot bind $name", manager.bindAppWidgetIdIfAllowed(id, provider.provider))
             id
         }
@@ -165,7 +175,7 @@ internal class WidgetSmokeScenario(
         allocatedIds.remove(fullId)
         for ((index, id) in smallIds.withIndex()) {
             widgetId = id
-            val height = if (index == 0) 110 else 56
+            val height = if (index == 0) 80 else 40
             val size = if (index == 0) "2x2" else "2x1"
             for (theme in listOf("LIGHT", "DARK", "NORDIC")) {
                 showHost(110, height)
