@@ -100,6 +100,8 @@ class ReleaseSmokeTest {
         selectTheme("NORDIC")
         screenshot("panel-nordic-selected")
 
+        WidgetSmokeScenario(device, ::screenshot).run()
+
         // Both channels fit without scrolling after rotation and with large fonts.
         device.setOrientationLeft()
         verifyFixedPanel()

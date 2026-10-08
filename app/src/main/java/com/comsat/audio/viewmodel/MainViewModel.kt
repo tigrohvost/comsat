@@ -22,6 +22,7 @@ import com.comsat.audio.data.repository.MetarRepository
 import com.comsat.audio.data.repository.SettingsRepository
 import com.comsat.audio.data.repository.SomaFmRepository
 import com.comsat.audio.service.AudioService
+import com.comsat.audio.widget.PlaybackSnapshotRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
@@ -47,7 +48,8 @@ class MainViewModel @Inject constructor(
     private val liveAtcRepo: LiveAtcRepository,
     private val somaRepo: SomaFmRepository,
     private val settingsRepo: SettingsRepository,
-    private val metarRepo: MetarRepository
+    private val metarRepo: MetarRepository,
+    private val playbackSnapshotRepository: PlaybackSnapshotRepository
 ) : AndroidViewModel(application) {
 
     private var audioService: AudioService? = null
@@ -97,8 +99,10 @@ class MainViewModel @Inject constructor(
 
             pendingAtc?.let { (url, label) -> svc.playAtc(url, label) }
             pendingAtc = null
+            playbackSnapshotRepository.setAtcPreparing(atcTuning.value)
             pendingSomaStation?.let { startSoma(svc, it) }
             pendingSomaStation = null
+            playbackSnapshotRepository.setSomaPreparing(false)
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
@@ -208,6 +212,7 @@ class MainViewModel @Inject constructor(
         _stations.value.find { it.id == id }?.let {
             _selectedStation.value = it
             restoredStationId = null
+            viewModelScope.launch { settingsRepo.setStation(it.id, it.title, it.network) }
         }
     }
 
@@ -341,7 +346,7 @@ class MainViewModel @Inject constructor(
         pendingAtc = null
         audioService?.stopAtc()
         val generation = ++atcSelectionGeneration
-        atcTuning.value = true
+        setAtcTuning(true)
         selectJob = viewModelScope.launch {
             try {
                 val resolved = try {
@@ -356,9 +361,14 @@ class MainViewModel @Inject constructor(
                 updateAirport(resolved)
                 playAtc(resolved)
             } finally {
-                if (generation == atcSelectionGeneration) atcTuning.value = false
+                if (generation == atcSelectionGeneration) setAtcTuning(false)
             }
         }
+    }
+
+    private fun setAtcTuning(tuning: Boolean) {
+        atcTuning.value = tuning
+        playbackSnapshotRepository.setAtcPreparing(tuning || pendingAtc != null)
     }
 
     private fun playAtc(airport: Airport) {
@@ -378,7 +388,7 @@ class MainViewModel @Inject constructor(
             ++atcSelectionGeneration
             selectJob?.cancel()
             pendingAtc = null
-            atcTuning.value = false
+            setAtcTuning(false)
             audioService?.stopAtc()
             _atcState.value = StreamState()
         } else _selectedAirport.value?.let { selectAirport(it) }
@@ -386,13 +396,14 @@ class MainViewModel @Inject constructor(
 
     fun selectStation(station: SomaStation) {
         _selectedStation.value = station
-        viewModelScope.launch { settingsRepo.setStation(station.id) }
+        viewModelScope.launch { settingsRepo.setStation(station.id, station.title, station.network) }
         val ctx = getApplication<Application>()
         ctx.startService(Intent(ctx, AudioService::class.java))
         val svc = audioService
         if (svc != null) startSoma(svc, station)
         else {
             pendingSomaStation = station
+            playbackSnapshotRepository.setSomaPreparing(true)
             _somaState.value = StreamState(StreamStatus.LOADING)
         }
     }
@@ -408,6 +419,7 @@ class MainViewModel @Inject constructor(
     fun toggleSomaPlayback() {
         if (pendingSomaStation != null || _somaState.value.canPause) {
             pendingSomaStation = null
+            playbackSnapshotRepository.setSomaPreparing(false)
             audioService?.stopSoma()
             _somaState.value = StreamState()
         } else _selectedStation.value?.let { selectStation(it) }
@@ -435,6 +447,8 @@ class MainViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        playbackSnapshotRepository.setAtcPreparing(false)
+        playbackSnapshotRepository.setSomaPreparing(false)
         connectivityManager.unregisterNetworkCallback(networkCallback)
         if (serviceBound) {
             getApplication<Application>().unbindService(serviceConnection)

@@ -8,4 +8,20 @@
     <string name="notification_action_pause">Pause</string>
     <string name="notification_action_stop">Stop</string>
     <string name="notification_paused">Paused</string>
+    <string name="widget_name">COMSAT · Airport + Radio</string>
+    <string name="widget_description">Your selected airport and radio, with playback status. Tap to open COMSAT.</string>
+    <string name="widget_heading">COMSAT / MIX</string>
+    <string name="widget_airport_label">ATC</string>
+    <string name="widget_station_label">RADIO</string>
+    <string name="widget_choose_airport">Choose airport</string>
+    <string name="widget_choose_station">Choose station</string>
+    <string name="widget_selection_hint">Select a source in COMSAT</string>
+    <string name="widget_stopped">STOPPED</string>
+    <string name="widget_connecting">CONNECTING</string>
+    <string name="widget_playing">PLAYING</string>
+    <string name="widget_buffering">BUFFERING</string>
+    <string name="widget_paused">PAUSED</string>
+    <string name="widget_reconnecting">RECONNECTING</string>
+    <string name="widget_offline">OFFLINE</string>
+    <string name="widget_not_selected">NOT SELECTED</string>
 </resources>

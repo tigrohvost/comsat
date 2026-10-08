@@ -44,11 +44,19 @@ import com.comsat.audio.MainActivity
 import com.comsat.audio.R
 import com.comsat.audio.data.model.StreamState
 import com.comsat.audio.data.model.StreamStatus
+import com.comsat.audio.widget.PlaybackSnapshotRepository
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.OkHttpClient
@@ -67,6 +75,9 @@ class AudioService : Service() {
     }
 
     @Inject lateinit var okHttpClient: OkHttpClient
+    @Inject lateinit var playbackSnapshotRepository: PlaybackSnapshotRepository
+
+    private val widgetStateScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val binder = AudioBinder()
     private val handler = Handler(Looper.getMainLooper())
@@ -176,6 +187,11 @@ class AudioService : Service() {
             IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
+        widgetStateScope.launch {
+            combine(atcState, somaState) { atc, soma -> atc.status to soma.status }
+                .distinctUntilChanged()
+                .collect { (atc, soma) -> playbackSnapshotRepository.updatePlayback(atc, soma) }
+        }
     }
 
     override fun onBind(intent: Intent): IBinder = binder
@@ -197,6 +213,8 @@ class AudioService : Service() {
     }
 
     override fun onDestroy() {
+        widgetStateScope.cancel()
+        playbackSnapshotRepository.clearPlayback()
         unregisterReceiver(noisyReceiver)
         // Invalidate callbacks as well as cancelling the socket: an HTTP
         // response may already be on its way back to the main thread.

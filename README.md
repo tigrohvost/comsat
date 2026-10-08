@@ -34,6 +34,15 @@ built in.
 1. Download [`COMSAT.apk`](https://github.com/tigrohvost/comsat/releases/latest/download/COMSAT.apk).
 2. Install it on Android 8.0 or newer and allow notifications for background controls.
 3. Pick an airport, pick an ambient station and balance the two faders.
+4. To see your mix on the home screen, long-press an empty area, open **Widgets**
+   and add **COMSAT · Airport + Radio**. Resize the widget to show more detail;
+   tap it to open the app.
+
+The home-screen widget shows the selected airport, radio station and each
+channel's playback state. It follows the app's theme and keeps source names
+available offline. Updates follow selection and playback changes; Android also
+refreshes it periodically. After an abrupt process kill, the launcher may keep
+the last status until that refresh or the next app launch.
 
 > [!TIP]
 > Headphones make the mix more immersive — and keep an unexpected tower feed
@@ -91,7 +100,8 @@ To build and verify a signed APK without publishing a release, run **Actions →
 Android Release → Run workflow** on the desired branch. The `COMSAT-…` artifact
 contains the signed APK, its SHA-256 checksum and `build-info.json` with the
 source commit. The workflow also launches the minified APK on an offline Android
-emulator and checks selectors, stopping playback, saved selections, themes,
+emulator and checks selectors, stopping playback, saved selections, themes, widget
+updates and resizing through a real Android widget host,
 the fixed main panel at 320 × 568 dp and in landscape with large text. Screenshots and test
 reports are uploaded separately. Each published release also includes
 `COMSAT-screenshots.zip` with captures of the tested APK in all three themes,
@@ -104,8 +114,8 @@ Set the repository secrets `COMSAT_KEYSTORE_BASE64` and
 matching semantic tag:
 
 ```bash
-git tag -a v1.3.6 -m "COMSAT 1.3.6"
-git push origin v1.3.6
+git tag -a v1.4.0 -m "COMSAT 1.4.0"
+git push origin v1.4.0
 ```
 
 The release workflow rejects a tag that does not match the app version. A

@@ -20,6 +20,8 @@ data class AppSettings(
     val somaVolume: Float = 0.5f,
     val airportIcao: String? = null,
     val stationId: String? = null,
+    val stationTitle: String? = null,
+    val stationNetwork: String? = null,
     val themeMode: ThemeMode = ThemeMode.NORDIC
 )
 
@@ -32,6 +34,8 @@ class SettingsRepository @Inject constructor(
         val SOMA_VOLUME = floatPreferencesKey("soma_volume")
         val AIRPORT_ICAO = stringPreferencesKey("airport_icao")
         val STATION_ID = stringPreferencesKey("station_id")
+        val STATION_TITLE = stringPreferencesKey("station_title")
+        val STATION_NETWORK = stringPreferencesKey("station_network")
         val THEME_MODE = intPreferencesKey("theme_mode")
     }
 
@@ -41,6 +45,8 @@ class SettingsRepository @Inject constructor(
             somaVolume = prefs[Keys.SOMA_VOLUME] ?: 0.5f,
             airportIcao = prefs[Keys.AIRPORT_ICAO],
             stationId = prefs[Keys.STATION_ID],
+            stationTitle = prefs[Keys.STATION_TITLE],
+            stationNetwork = prefs[Keys.STATION_NETWORK],
             themeMode = prefs[Keys.THEME_MODE]
                 ?.let { ThemeMode.entries.getOrNull(it) }
                 ?: ThemeMode.NORDIC
@@ -58,8 +64,14 @@ class SettingsRepository @Inject constructor(
         context.dataStore.edit { it[Keys.AIRPORT_ICAO] = icao }
     }
 
-    suspend fun setStation(id: String) {
-        context.dataStore.edit { it[Keys.STATION_ID] = id }
+    suspend fun setStation(id: String, title: String, network: String) {
+        // A widget must be able to name the selection without loading the
+        // online station directory, including after the process is restarted.
+        context.dataStore.edit {
+            it[Keys.STATION_ID] = id
+            it[Keys.STATION_TITLE] = title
+            it[Keys.STATION_NETWORK] = network
+        }
     }
 
     suspend fun setTheme(mode: ThemeMode) {
