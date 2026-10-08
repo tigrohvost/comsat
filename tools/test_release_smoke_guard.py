@@ -118,8 +118,7 @@ class ReleaseSmokeGuardTest(unittest.TestCase):
         self.assertEqual(gradle["serial"], serial)
         self.assertIn(":smoke:connectedReleaseAndroidTest", gradle["args"])
         self.assertIn("-Pcomsat.testBuildType=release", gradle["args"])
-        self.assertIn("--serial", gradle["args"])
-        self.assertEqual(gradle["args"][gradle["args"].index("--serial") + 1], serial)
+        self.assertNotIn("--serial", gradle["args"], "AGP 9.3.1 cannot mutate its serial list")
         device_commands = []
         for call in calls:
             if call["tool"] != "adb" or call["args"] == ["devices"]:

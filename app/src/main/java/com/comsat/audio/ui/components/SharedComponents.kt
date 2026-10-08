@@ -26,6 +26,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -140,10 +142,13 @@ fun ComsatSearchField(
                     contentAlignment = Alignment.Center
                 ) {
                     if (query.isNotEmpty()) {
-                        IconButton(onClick = { onQueryChange("") }) {
+                        IconButton(
+                            onClick = { onQueryChange("") },
+                            modifier = Modifier.semantics { contentDescription = "Clear search" }
+                        ) {
                             Icon(
                                 Icons.Default.Close,
-                                contentDescription = "Clear search",
+                                contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(18.dp)
                             )

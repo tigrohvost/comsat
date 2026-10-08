@@ -41,5 +41,6 @@ trap collect_diagnostics EXIT
 adb -s "${ANDROID_SERIAL}" shell cmd connectivity airplane-mode enable
 adb -s "${ANDROID_SERIAL}" shell svc wifi disable
 adb -s "${ANDROID_SERIAL}" shell svc data disable
-./gradlew -Pcomsat.testBuildType=release :smoke:connectedReleaseAndroidTest \
-  --serial "${ANDROID_SERIAL}" --stacktrace
+# AGP 9.3.1's --serial path mutates an immutable Gradle ListProperty and fails
+# before installing the APK. Its connected-device provider honors ANDROID_SERIAL.
+./gradlew -Pcomsat.testBuildType=release :smoke:connectedReleaseAndroidTest --stacktrace
