@@ -121,8 +121,8 @@ Set the repository secrets `COMSAT_KEYSTORE_BASE64` and
 matching semantic tag:
 
 ```bash
-git tag -a v1.5.0 -m "COMSAT 1.5.0"
-git push origin v1.5.0
+git tag -a v1.5.1 -m "COMSAT 1.5.1"
+git push origin v1.5.1
 ```
 
 The release workflow rejects a tag that does not match the app version. A
@@ -142,9 +142,11 @@ variant on every pull request and push to `main`.
 
 ATC audio comes from [LiveATC](https://www.liveatc.net/); ambient stations come
 from listener-supported [SomaFM](https://somafm.com/) and Rain Radio. Widget
-weather and city search come from [Open-Meteo](https://open-meteo.com/); weather
+weather and city search come from [Open-Meteo](https://open-meteo.com/); when it
+is unreachable, weather comes from [MET Norway](https://api.met.no/) (data
+licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)). Weather
 icons are adapted from [Lucide](https://lucide.dev/) (ISC License). COMSAT is
-not affiliated with LiveATC, SomaFM or Open-Meteo. Feeds depend on third-party and
+not affiliated with LiveATC, SomaFM, Open-Meteo or MET Norway. Feeds depend on third-party and
 volunteer-run infrastructure, so individual stations can disappear or go
 offline at any time.
 

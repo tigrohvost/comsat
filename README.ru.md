@@ -123,8 +123,8 @@ UI Automator работает в отдельном модуле и процес
 отправьте соответствующий семантический тег:
 
 ```bash
-git tag -a v1.5.0 -m "COMSAT 1.5.0"
-git push origin v1.5.0
+git tag -a v1.5.1 -m "COMSAT 1.5.1"
+git push origin v1.5.1
 ```
 
 Release workflow отклоняет тег, который не совпадает с версией приложения.
@@ -145,8 +145,10 @@ release-вариант для каждого pull request и push в `main`.
 Эфиры УВД поступают из [LiveATC](https://www.liveatc.net/), эмбиент-станции —
 из поддерживаемого слушателями [SomaFM](https://somafm.com/) и Rain Radio.
 Погода и поиск городов для виджета — [Open-Meteo](https://open-meteo.com/);
-значки погоды основаны на [Lucide](https://lucide.dev/) (лицензия ISC).
-COMSAT не связан с LiveATC, SomaFM или Open-Meteo. Потоки зависят от сторонней и
+если он недоступен, погода берётся у [MET Norway](https://api.met.no/) (данные
+под лицензией [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)).
+Значки погоды основаны на [Lucide](https://lucide.dev/) (лицензия ISC).
+COMSAT не связан с LiveATC, SomaFM, Open-Meteo или MET Norway. Потоки зависят от сторонней и
 волонтёрской инфраструктуры, поэтому отдельные станции могут исчезать или
 временно прекращать вещание.
 

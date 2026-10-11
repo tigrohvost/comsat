@@ -1,6 +1,7 @@
 package com.comsat.audio.di
 
 import com.comsat.audio.BuildConfig
+import com.comsat.audio.data.api.MetNorwayApi
 import com.comsat.audio.data.api.MetarApi
 import com.comsat.audio.data.api.OpenMeteoApi
 import com.comsat.audio.data.api.SomaFmApi
@@ -40,7 +41,7 @@ object AppModule {
             // h2, and the extra TLS handshakes are negligible.
             .connectionPool(ConnectionPool(0, 1, TimeUnit.SECONDS))
             .protocols(listOf(Protocol.HTTP_1_1))
-            // Identify ourselves to LiveATC/SomaFM instead of "okhttp/x.y"; a
+            // Identify ourselves to LiveATC/SomaFM/MET instead of "okhttp/x.y"; a
             // named client with a contact URL is easier to whitelist than to ban.
             .addInterceptor { chain ->
                 chain.proceed(
@@ -90,4 +91,14 @@ object AppModule {
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(OpenMeteoApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideMetNorwayApi(client: OkHttpClient): MetNorwayApi =
+        Retrofit.Builder()
+            .baseUrl("https://api.met.no/")
+            .client(client)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+            .create(MetNorwayApi::class.java)
 }

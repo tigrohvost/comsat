@@ -12,12 +12,14 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.comsat.audio.R
+import com.comsat.audio.data.api.MetNorwayApi
 import com.comsat.audio.data.api.OpenMeteoApi
 import com.comsat.audio.data.model.WeatherCondition
 import com.comsat.audio.data.model.WeatherPlace
 import com.comsat.audio.data.model.WeatherReport
 import com.comsat.audio.data.model.WeatherSource
 import com.comsat.audio.data.model.WeatherState
+import com.comsat.audio.data.model.metCoordinate
 import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
@@ -38,7 +40,8 @@ private val Context.weatherStore by preferencesDataStore(name = "comsat_weather"
 class WeatherRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     // Lazy: widget broadcasts build this repository long before any request.
-    private val api: Lazy<OpenMeteoApi>,
+    private val openMeteo: Lazy<OpenMeteoApi>,
+    private val metNorway: Lazy<MetNorwayApi>,
     private val locator: DeviceLocator,
     private val settingsRepository: SettingsRepository,
     private val airportCatalog: AirportCatalog
@@ -57,7 +60,13 @@ class WeatherRepository @Inject constructor(
         val REPORT_LAT = doublePreferencesKey("report_lat")
         val REPORT_LON = doublePreferencesKey("report_lon")
         val REPORT_TIME = longPreferencesKey("report_time")
+        val PROVIDER = stringPreferencesKey("provider")
     }
+
+    // Each is a fallback for the other: some networks cannot reach one of them
+    // (seen: api.open-meteo.com timing out on a home connection in Russia while
+    // api.met.no answered).
+    private enum class Provider { OPEN_METEO, MET_NORWAY }
 
     val state: Flow<WeatherState> = context.weatherStore.data.map { readState(it) }
 
@@ -88,7 +97,7 @@ class WeatherRepository @Inject constructor(
 
     // Throws on network failure so the picker can tell it from "no matches".
     suspend fun search(query: String): List<WeatherPlace> =
-        api.get().searchPlaces(query.trim(), Locale.getDefault().language)
+        openMeteo.get().searchPlaces(query.trim(), Locale.getDefault().language)
             .results.orEmpty()
             .mapNotNull { it.toPlace() }
 
@@ -122,8 +131,15 @@ class WeatherRepository @Inject constructor(
             ) return@withLock
         }
         lastAttempt = target to now
-        val report = fetch(target, now) ?: return@withLock
+        // The provider that last answered goes first, so a blocked one costs
+        // a timeout once rather than on every update.
+        val preferred = context.weatherStore.data.first()[Keys.PROVIDER]
+        val providers = Provider.entries.sortedByDescending { it.name == preferred }
+        val (provider, report) = providers.firstNotNullOfOrNull { candidate ->
+            fetch(candidate, target, now)?.let { candidate to it }
+        } ?: return@withLock
         context.weatherStore.edit {
+            it[Keys.PROVIDER] = provider.name
             it[Keys.REPORT_TEMP] = report.tempC
             it[Keys.REPORT_CONDITION] = report.condition.name
             it[Keys.REPORT_DAY] = report.isDay
@@ -133,15 +149,21 @@ class WeatherRepository @Inject constructor(
         }
     }
 
-    private suspend fun fetch(place: WeatherPlace, now: Long): WeatherReport? = try {
+    private suspend fun fetch(provider: Provider, place: WeatherPlace, now: Long): WeatherReport? = try {
         withTimeoutOrNull(FETCH_TIMEOUT_MS) {
-            api.get().getCurrent(place.latitude, place.longitude).current?.toReport(place, now)
-        }
+            when (provider) {
+                Provider.OPEN_METEO ->
+                    openMeteo.get().getCurrent(place.latitude, place.longitude).current?.toReport(place, now)
+                Provider.MET_NORWAY ->
+                    metNorway.get().getForecast(metCoordinate(place.latitude), metCoordinate(place.longitude))
+                        .toReport(place, now)
+            }
+        }.also { if (it == null) Log.w(TAG, "No weather from $provider") }
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
         // Weather is auxiliary; keep showing the previous reading.
-        Log.w(TAG, "Could not fetch weather", error)
+        Log.w(TAG, "Could not fetch weather from $provider", error)
         null
     }
 
@@ -214,6 +236,7 @@ class WeatherRepository @Inject constructor(
         const val REPORT_TTL_MS = 30 * 60_000L
         const val RETRY_INTERVAL_MS = 5 * 60_000L
         const val FIX_INTERVAL_MS = 15 * 60_000L
-        const val FETCH_TIMEOUT_MS = 12_000L
+        // Per provider; both together stay within WidgetUpdater's 20 s budget.
+        const val FETCH_TIMEOUT_MS = 6_000L
     }
 }

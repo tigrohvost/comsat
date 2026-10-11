@@ -1,6 +1,8 @@
 package com.comsat.audio.data.model
 
 import com.google.gson.annotations.SerializedName
+import java.time.Instant
+import java.util.Locale
 import kotlin.math.abs
 
 // ─── Open-Meteo ───────────────────────────────────────────────────────────────
@@ -25,6 +27,83 @@ data class OpenMeteoCurrentDto(
         )
     }
 }
+
+// ─── MET Norway ───────────────────────────────────────────────────────────────
+
+// Fallback for networks that cannot reach api.open-meteo.com
+data class MetForecastDto(
+    @SerializedName("properties") val properties: MetPropertiesDto? = null
+) {
+    fun toReport(place: WeatherPlace, fetchedAtMillis: Long): WeatherReport? {
+        val series = properties?.timeseries.orEmpty()
+        // Hourly steps from the current hour on; take the one in effect now.
+        val step = series.lastOrNull { candidate -> candidate.startMillis()?.let { it <= fetchedAtMillis } == true }
+            ?: series.firstOrNull()
+            ?: return null
+        val data = step.data ?: return null
+        val symbol = (data.nextHour ?: data.nextSixHours)?.summary?.symbolCode ?: return null
+        return WeatherReport(
+            tempC = data.instant?.details?.airTemperature ?: return null,
+            condition = metCondition(symbol),
+            isDay = !symbol.endsWith("_night"),
+            latitude = place.latitude,
+            longitude = place.longitude,
+            fetchedAtMillis = fetchedAtMillis
+        )
+    }
+}
+
+data class MetPropertiesDto(
+    @SerializedName("timeseries") val timeseries: List<MetStepDto>? = null
+)
+
+data class MetStepDto(
+    @SerializedName("time") val time: String? = null,
+    @SerializedName("data") val data: MetStepDataDto? = null
+) {
+    fun startMillis(): Long? = time?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
+}
+
+data class MetStepDataDto(
+    @SerializedName("instant") val instant: MetInstantDto? = null,
+    @SerializedName("next_1_hours") val nextHour: MetPeriodDto? = null,
+    @SerializedName("next_6_hours") val nextSixHours: MetPeriodDto? = null
+)
+
+data class MetInstantDto(
+    @SerializedName("details") val details: MetInstantDetailsDto? = null
+)
+
+data class MetInstantDetailsDto(
+    @SerializedName("air_temperature") val airTemperature: Double? = null
+)
+
+data class MetPeriodDto(
+    @SerializedName("summary") val summary: MetSummaryDto? = null
+)
+
+data class MetSummaryDto(
+    @SerializedName("symbol_code") val symbolCode: String? = null
+)
+
+// MET symbol codes such as "lightrainshowers_day" or "heavysnowandthunder"
+fun metCondition(symbolCode: String): WeatherCondition {
+    val symbol = symbolCode.substringBefore('_')
+    return when {
+        "thunder" in symbol -> WeatherCondition.THUNDERSTORM
+        "snow" in symbol || "sleet" in symbol -> WeatherCondition.SNOW
+        "rain" in symbol -> WeatherCondition.RAIN
+        symbol == "fog" -> WeatherCondition.FOG
+        symbol == "clearsky" -> WeatherCondition.CLEAR
+        symbol == "fair" || symbol == "partlycloudy" -> WeatherCondition.PARTLY_CLOUDY
+        else -> WeatherCondition.CLOUDY
+    }
+}
+
+// MET rejects coordinates with more than four decimals.
+fun metCoordinate(value: Double): String = String.format(Locale.ROOT, "%.4f", value)
+
+// ─── Open-Meteo geocoding ─────────────────────────────────────────────────────
 
 data class GeocodingResponseDto(
     // Omitted entirely when nothing matches
@@ -84,7 +163,7 @@ data class WeatherReport(
     val tempC: Double,
     val condition: WeatherCondition,
     val isDay: Boolean,
-    // The requested place, not Open-Meteo's grid cell, so a report can be
+    // The requested place, not the provider's grid cell, so a report can be
     // matched against the current selection.
     val latitude: Double,
     val longitude: Double,

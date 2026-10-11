@@ -6,6 +6,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Instant
 
 class WeatherModelsTest {
     private val moscow = WeatherPlace("Moscow", 55.7522, 37.6156)
@@ -60,6 +61,66 @@ class WeatherModelsTest {
         assertNull(OpenMeteoCurrentDto(temperature = null, weatherCode = 1).toReport(moscow, 0L))
         assertNull(OpenMeteoCurrentDto(temperature = 4.0, weatherCode = null).toReport(moscow, 0L))
         assertNull(Gson().fromJson("{}", OpenMeteoForecastDto::class.java).current)
+    }
+
+    @Test
+    fun gsonParsesMetNorwayForecastAtTheCurrentHour() {
+        val json = """
+            {"type":"Feature","properties":{"meta":{"updated_at":"2026-10-11T13:19:56Z"},
+             "timeseries":[
+               {"time":"2026-10-11T16:00:00Z","data":{
+                  "instant":{"details":{"air_temperature":10.5,"wind_speed":2.1}},
+                  "next_1_hours":{"summary":{"symbol_code":"rain"}}}},
+               {"time":"2026-10-11T17:00:00Z","data":{
+                  "instant":{"details":{"air_temperature":-1.2}},
+                  "next_1_hours":{"summary":{"symbol_code":"clearsky_night"}}}},
+               {"time":"2026-10-21T00:00:00Z","data":{
+                  "instant":{"details":{"air_temperature":3.6}}}}
+             ]}}
+        """.trimIndent()
+        val forecast = Gson().fromJson(json, MetForecastDto::class.java)
+        val at1650 = Instant.parse("2026-10-11T16:50:00Z").toEpochMilli()
+        val at1710 = Instant.parse("2026-10-11T17:10:00Z").toEpochMilli()
+
+        val now = forecast.toReport(moscow, at1650)!!
+        assertEquals(10.5, now.tempC, 0.001)
+        assertEquals(WeatherCondition.RAIN, now.condition)
+        assertTrue(now.isDay)
+        assertEquals(moscow.latitude, now.latitude, 0.0)
+        assertEquals(at1650, now.fetchedAtMillis)
+
+        val later = forecast.toReport(moscow, at1710)!!
+        assertEquals(-1.2, later.tempC, 0.001)
+        assertEquals(WeatherCondition.CLEAR, later.condition)
+        assertFalse(later.isDay)
+
+        // A clock behind the series still shows its first hour.
+        assertEquals(10.5, forecast.toReport(moscow, 0L)!!.tempC, 0.001)
+        // Steps past the hourly range carry no symbol for the next hour.
+        assertNull(forecast.toReport(moscow, Instant.parse("2026-10-21T01:00:00Z").toEpochMilli()))
+        assertNull(Gson().fromJson("{}", MetForecastDto::class.java).toReport(moscow, at1650))
+    }
+
+    @Test
+    fun metSymbolsMapToConditions() {
+        assertEquals(WeatherCondition.CLEAR, metCondition("clearsky_polartwilight"))
+        assertEquals(WeatherCondition.PARTLY_CLOUDY, metCondition("fair_night"))
+        assertEquals(WeatherCondition.PARTLY_CLOUDY, metCondition("partlycloudy_day"))
+        assertEquals(WeatherCondition.CLOUDY, metCondition("cloudy"))
+        assertEquals(WeatherCondition.FOG, metCondition("fog"))
+        assertEquals(WeatherCondition.RAIN, metCondition("lightrainshowers_day"))
+        assertEquals(WeatherCondition.SNOW, metCondition("heavysleet"))
+        assertEquals(WeatherCondition.SNOW, metCondition("snowshowers_night"))
+        // MET's own spelling, "lightssleet", still reads as thunder first.
+        assertEquals(WeatherCondition.THUNDERSTORM, metCondition("lightssleetshowersandthunder_day"))
+        assertEquals(WeatherCondition.CLOUDY, metCondition("somethingnew"))
+    }
+
+    @Test
+    fun metCoordinatesHaveAtMostFourDecimals() {
+        assertEquals("56.8587", metCoordinate(56.85871))
+        assertEquals("-73.7789", metCoordinate(-73.77889))
+        assertEquals("37.6000", metCoordinate(37.6))
     }
 
     @Test
