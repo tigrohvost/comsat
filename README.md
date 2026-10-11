@@ -38,9 +38,12 @@ built in.
    and add **COMSAT · Airport + Radio**. Resize the widget to show more detail;
    tap it to open the app.
 
-Separate **2 × 2** and **2 × 1** widgets offer compact layouts. All widget
-backgrounds are translucent. If new widgets are missing after an update,
-restart your launcher without clearing its data.
+Separate **2 × 2** and **2 × 1** widgets offer compact layouts.
+**COMSAT · Weather 4 × 1** adds current weather beside the 2 × 1 airport and
+radio rows. When you place it, choose your current location (approximate,
+updated when you open COMSAT), the selected airport or a city; tap the
+weather to change it later. All widget backgrounds are translucent. If new
+widgets are missing after an update, restart your launcher without clearing its data.
 
 The home-screen widget shows the selected airport, radio station and each
 channel's playback state. It follows the app's theme and keeps source names
@@ -105,7 +108,7 @@ Android Release → Run workflow** on the desired branch. The `COMSAT-…` artif
 contains the signed APK, its SHA-256 checksum and `build-info.json` with the
 source commit. The workflow also launches the minified APK on an offline Android
 emulator and checks selectors, stopping playback, saved selections, themes, widget
-updates and resizing through a real Android widget host,
+updates, resizing and the weather widget's location picker through a real Android widget host,
 the fixed main panel at 320 × 568 dp and in landscape with large text. Screenshots and test
 reports are uploaded separately. Each published release also includes
 `COMSAT-screenshots.zip` with captures of the tested APK in all three themes,
@@ -118,8 +121,8 @@ Set the repository secrets `COMSAT_KEYSTORE_BASE64` and
 matching semantic tag:
 
 ```bash
-git tag -a v1.4.4 -m "COMSAT 1.4.4"
-git push origin v1.4.4
+git tag -a v1.5.0 -m "COMSAT 1.5.0"
+git push origin v1.5.0
 ```
 
 The release workflow rejects a tag that does not match the app version. A
@@ -138,8 +141,10 @@ variant on every pull request and push to `main`.
 ## Signal sources
 
 ATC audio comes from [LiveATC](https://www.liveatc.net/); ambient stations come
-from listener-supported [SomaFM](https://somafm.com/) and Rain Radio. COMSAT is
-not affiliated with LiveATC or SomaFM. Feeds depend on third-party and
+from listener-supported [SomaFM](https://somafm.com/) and Rain Radio. Widget
+weather and city search come from [Open-Meteo](https://open-meteo.com/); weather
+icons are adapted from [Lucide](https://lucide.dev/) (ISC License). COMSAT is
+not affiliated with LiveATC, SomaFM or Open-Meteo. Feeds depend on third-party and
 volunteer-run infrastructure, so individual stations can disappear or go
 offline at any time.
 

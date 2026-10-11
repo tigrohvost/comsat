@@ -3,6 +3,11 @@ package com.comsat.audio.widget
 import com.comsat.audio.data.model.Airport
 import com.comsat.audio.data.model.AtcFeed
 import com.comsat.audio.data.model.StreamStatus
+import com.comsat.audio.data.model.WeatherCondition
+import com.comsat.audio.data.model.WeatherPlace
+import com.comsat.audio.data.model.WeatherReport
+import com.comsat.audio.data.model.WeatherSource
+import com.comsat.audio.data.model.WeatherState
 import com.comsat.audio.data.repository.AppSettings
 import com.comsat.audio.ui.theme.ThemeMode
 import org.junit.Assert.assertEquals
@@ -125,5 +130,50 @@ class WidgetModelTest {
         oldProcess.updatePlayback(StreamStatus.PLAYING, StreamStatus.PLAYING)
 
         assertEquals(PlaybackSnapshot(), PlaybackSnapshotRepository().snapshot.value)
+    }
+
+    private val tver = WeatherPlace("Tver", 56.8587, 35.9176)
+
+    private fun report(place: WeatherPlace, tempC: Double = -0.4, fetchedAt: Long = 0L) =
+        WeatherReport(tempC, WeatherCondition.RAIN, isDay = false, place.latitude, place.longitude, fetchedAt)
+
+    @Test
+    fun `weather stays unset until a location is chosen`() {
+        val weather = widgetWeather(WeatherState(place = tver, report = report(tver)), airport, nowMillis = 0L)
+
+        assertEquals(WidgetWeather(), weather)
+        assertEquals(WidgetWeather(), widgetModel(AppSettings(), PlaybackSnapshot(), null).weather)
+    }
+
+    @Test
+    fun `a fresh report for the chosen place is shown rounded`() {
+        val state = WeatherState(source = WeatherSource.PLACE, place = tver, report = report(tver))
+        val weather = widgetWeather(state, airport, nowMillis = WEATHER_MAX_AGE_MS - 1)
+
+        assertEquals("Tver", weather.place)
+        assertEquals(0, weather.tempC)
+        assertEquals(WeatherCondition.RAIN, weather.condition)
+        assertEquals(false, weather.isDay)
+    }
+
+    @Test
+    fun `old or foreign reports leave only the place name`() {
+        val stale = WeatherState(source = WeatherSource.PLACE, place = tver, report = report(tver))
+        assertEquals(WidgetWeather(place = "Tver"), widgetWeather(stale, airport, nowMillis = WEATHER_MAX_AGE_MS))
+
+        // Switching to the airport must not relabel Tver's reading as New York's.
+        val switched = stale.copy(source = WeatherSource.AIRPORT)
+        val airportWithCoordinates = airport.copy(lat = 40.6398f, lon = -73.7789f)
+        assertEquals(WidgetWeather(place = "New York"), widgetWeather(switched, airportWithCoordinates, nowMillis = 0L))
+    }
+
+    @Test
+    fun `current location waits for a device fix`() {
+        val state = WeatherState(source = WeatherSource.CURRENT_LOCATION, report = report(tver))
+
+        assertNull(widgetWeather(state, airport, nowMillis = 0L).place)
+        assertEquals(12, widgetWeather(
+            state.copy(deviceLocation = tver, report = report(tver, tempC = 11.5)), airport, nowMillis = 0L
+        ).tempC)
     }
 }

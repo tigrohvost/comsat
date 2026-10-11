@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Line icon tinted at runtime; geometry follows Lucide (ISC). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path
+        android:pathData="M4,14.9A7,7 0 1,1 15.71,8h1.79a4.5,4.5 0 0,1 2.5,8.24"
+        android:strokeColor="#88C0D0"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="2" />
+    <path
+        android:pathData="M8,19v1 M8,14v1 M16,19v1 M16,14v1 M12,21v1 M12,16v1"
+        android:strokeColor="#88C0D0"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="2" />
+</vector>

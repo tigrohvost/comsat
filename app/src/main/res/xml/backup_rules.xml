@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
     <exclude domain="sharedpref" path="." />
+    <!-- Device location and weather; the widget asks again after a restore. -->
+    <exclude domain="file" path="datastore/comsat_weather.preferences_pb" />
 </full-backup-content>

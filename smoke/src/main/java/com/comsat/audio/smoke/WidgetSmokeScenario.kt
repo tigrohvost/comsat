@@ -45,7 +45,10 @@ internal class WidgetSmokeScenario(
             widgetId = allocator.allocateAppWidgetId()
             allocatedIds += widgetId
             val providers = manager.installedProviders.filter { it.provider.packageName == TARGET_PACKAGE }
-            for (name in listOf("ComsatWidgetProvider", "ComsatSquareWidgetProvider", "ComsatSlimWidgetProvider")) {
+            for (name in listOf(
+                "ComsatWidgetProvider", "ComsatSquareWidgetProvider", "ComsatSlimWidgetProvider",
+                "ComsatWeatherWidgetProvider"
+            )) {
                 assertTrue("Missing widget in system picker: $name",
                     providers.any { it.provider.className == "$TARGET_PACKAGE.widget.$name" })
             }
@@ -148,16 +151,36 @@ internal class WidgetSmokeScenario(
         }
     }
 
+    private class SmallWidget(
+        val provider: String, val size: String, val cellWidth: Int, val cellHeight: Int,
+        val minimumWidth: Int, val minimumHeight: Int, val comfortableWidth: Int, val comfortableHeight: Int
+    ) {
+        val weather get() = provider == "ComsatWeatherWidgetProvider"
+    }
+
     private fun verifySmallWidgets() {
         val fullId = widgetId
-        val smallIds = listOf("ComsatSquareWidgetProvider", "ComsatSlimWidgetProvider").map { name ->
+        val smallWidgets = listOf(
+            SmallWidget("ComsatSquareWidgetProvider", "2x2", 2, 2, 110, 80, 140, 140),
+            SmallWidget("ComsatSlimWidgetProvider", "2x1", 2, 1, 110, 40, 140, 70),
+            SmallWidget("ComsatWeatherWidgetProvider", "4x1", 4, 1, 250, 40, 320, 70)
+        )
+        val smallIds = smallWidgets.map { small ->
+            val name = small.provider
             val id = allocator.allocateAppWidgetId()
             allocatedIds += id
             val provider = manager.installedProviders.single {
                 it.provider == ComponentName(TARGET_PACKAGE, "$TARGET_PACKAGE.widget.$name")
             }
-            assertEquals(2, provider.targetCellWidth)
-            assertEquals(if (name.contains("Square")) 2 else 1, provider.targetCellHeight)
+            assertEquals(small.cellWidth, provider.targetCellWidth)
+            assertEquals(small.cellHeight, provider.targetCellHeight)
+            if (small.weather) {
+                // Launchers ask for a location when placing it and offer to change it later.
+                assertEquals(ComponentName(TARGET_PACKAGE, "$TARGET_PACKAGE.widget.WeatherLocationActivity"),
+                    provider.configure)
+                assertTrue("Weather widget must be reconfigurable",
+                    provider.widgetFeatures and AppWidgetProviderInfo.WIDGET_FEATURE_RECONFIGURABLE != 0)
+            }
             // Launcher3/Lawnchair considers a short landscape grid even in portrait.
             // A minimum taller than the target span makes it ignore targetCellHeight.
             val padding = AppWidgetHostView.getDefaultPaddingForWidget(context, provider.provider, null)
@@ -173,19 +196,18 @@ internal class WidgetSmokeScenario(
         // Removing the final large instance must not stop updates to other providers.
         allocator.deleteAppWidgetId(fullId)
         allocatedIds.remove(fullId)
-        for ((index, id) in smallIds.withIndex()) {
+        for ((small, id) in smallWidgets.zip(smallIds)) {
             widgetId = id
-            val height = if (index == 0) 80 else 40
-            val size = if (index == 0) "2x2" else "2x1"
+            val size = small.size
             for (theme in listOf("LIGHT", "DARK", "NORDIC")) {
-                showHost(110, height)
+                showHost(small.minimumWidth, small.minimumHeight)
                 verifySources("KLAX")
                 val previousColor = widgetTextColor()
                 openApp()
                 visible(By.descStartsWith("Select theme:")).click()
                 visible(By.text(theme)).click()
                 visible(By.desc("Select theme: $theme"))
-                showHost(110, height)
+                showHost(small.minimumWidth, small.minimumHeight)
                 verifySources("KLAX")
                 val deadline = SystemClock.uptimeMillis() + 5_000
                 while (widgetTextColor() == previousColor && SystemClock.uptimeMillis() < deadline) {
@@ -194,21 +216,45 @@ internal class WidgetSmokeScenario(
                 assertTrue("Small widget did not apply $theme", widgetTextColor() != previousColor)
                 visible(widget("widget_airport_status").desc("KLAX. STOPPED"))
                 visible(widget("widget_station_status").desc("Rain Radio. STOPPED"))
-                verifyLayout(small = true)
+                verifyLayout(small = true, weather = small.weather)
                 screenshot("widget-$size-${theme.lowercase()}-large-text")
             }
             device.executeShellCommand("settings put system font_scale 1.0")
-            showHost(140, if (index == 0) 140 else 70)
+            showHost(small.comfortableWidth, small.comfortableHeight)
             verifySources("KLAX")
-            verifyLayout(small = true)
+            verifyLayout(small = true, weather = small.weather)
             screenshot("widget-$size")
+            if (small.weather) verifyWeatherLocation(small)
             // A click must still launch the app in the small layouts.
-            visible(widget("widget_panel")).click()
+            visible(widget(if (small.weather) "widget_mix" else "widget_panel")).click()
             visible(By.text("COMSAT"))
             allocator.deleteAppWidgetId(id)
             allocatedIds.remove(id)
             device.executeShellCommand("settings put system font_scale 1.5")
         }
+    }
+
+    // The emulator is offline: the weather half shows its place without a reading.
+    private fun verifyWeatherLocation(small: SmallWidget) {
+        // Bound without its configuration screen, the readout asks for a location.
+        visible(widget("widget_weather_temp").text("--°"))
+        visible(widget("widget_weather_place").text("Set location"))
+        visible(widget("widget_weather")).click()
+        visible(By.text("WEATHER LOCATION"))
+        visible(By.pkg(TARGET_PACKAGE).clazz("android.widget.EditText")).apply {
+            click()
+            text = "Tver"
+        }
+        // A failed lookup must not read as "no such city".
+        visible(By.text("SEARCH UNAVAILABLE"))
+        screenshot("weather-location-offline")
+        visible(By.text("Selected airport")).click()
+        assertTrue("Location screen did not close", device.wait(Until.gone(By.text("WEATHER LOCATION")), 5_000))
+        showHost(small.comfortableWidth, small.comfortableHeight)
+        visible(widget("widget_weather_place").text("Los Angeles"))
+        visible(widget("widget_weather_temp").text("--°"))
+        verifyLayout(small = true, weather = true)
+        screenshot("widget-4x1-airport-weather")
     }
 
     private fun showHost(width: Int = 200, height: Int = 160) {
@@ -266,7 +312,7 @@ internal class WidgetSmokeScenario(
         return color
     }
 
-    private fun verifyLayout(small: Boolean = false) {
+    private fun verifyLayout(small: Boolean = false, weather: Boolean = false) {
         if (!small) verifyStopped()
         instrumentation.waitForIdleSync()
         instrumentation.runOnMainSync {
@@ -275,12 +321,14 @@ internal class WidgetSmokeScenario(
             val panelId = providerResources.getIdentifier("widget_panel", "id", TARGET_PACKAGE)
             val panel = current.widgetView.findViewById<android.view.View>(panelId)
             val background = panel.background as GradientDrawable
-            assertEquals("Widget background must be translucent", 153,
+            assertEquals("Widget background must be translucent", 102,
                 Color.alpha(requireNotNull(background.color).defaultColor))
             val hostBounds = Rect()
             assertTrue(current.widgetView.getGlobalVisibleRect(hostBounds))
-            for (name in listOf("widget_airport_source", "widget_station_source",
-                "widget_airport_status", "widget_station_status")) {
+            val fields = listOf("widget_airport_source", "widget_station_source",
+                "widget_airport_status", "widget_station_status") +
+                if (weather) listOf("widget_weather_temp", "widget_weather_place") else emptyList()
+            for (name in fields) {
                 val id = providerResources.getIdentifier(name, "id", TARGET_PACKAGE)
                 val text = requireNotNull(current.widgetView.findViewById<TextView>(id)) { "Missing $name" }
                 val bounds = Rect()

@@ -14,9 +14,11 @@ import androidx.compose.ui.graphics.toArgb
 import com.comsat.audio.MainActivity
 import com.comsat.audio.R
 import com.comsat.audio.data.model.StreamStatus
+import com.comsat.audio.data.model.WeatherCondition
 import com.comsat.audio.ui.theme.*
 
-enum class WidgetFormat { FULL, SQUARE, SLIM }
+// WEATHER pairs a weather readout with the SLIM rows.
+enum class WidgetFormat { FULL, SQUARE, SLIM, WEATHER }
 
 /** A small, event-driven display: no network requests or animation in the launcher. */
 object WidgetViews {
@@ -24,12 +26,13 @@ object WidgetViews {
         context: Context, model: WidgetModel, options: Bundle, format: WidgetFormat = WidgetFormat.FULL
     ): RemoteViews {
         if (format != WidgetFormat.FULL) {
-            val minimumHeight = if (format == WidgetFormat.SLIM) 40 else 80
-            val comfortableHeight = if (format == WidgetFormat.SLIM) 56 else 110
+            val minimumWidth = if (format == WidgetFormat.WEATHER) 180f else 110f
+            val minimumHeight = if (format == WidgetFormat.SQUARE) 80 else 40
+            val comfortableHeight = if (format == WidgetFormat.SQUARE) 110 else 56
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 return RemoteViews(mapOf(
-                    SizeF(110f, minimumHeight.toFloat()) to createSmall(context, model, format, short = true),
-                    SizeF(110f, comfortableHeight.toFloat()) to createSmall(context, model, format, short = false)
+                    SizeF(minimumWidth, minimumHeight.toFloat()) to createSmall(context, model, format, short = true),
+                    SizeF(minimumWidth, comfortableHeight.toFloat()) to createSmall(context, model, format, short = false)
                 ))
             }
             return createSmall(context, model, format,
@@ -85,10 +88,13 @@ object WidgetViews {
         context: Context, model: WidgetModel, format: WidgetFormat, short: Boolean
     ): RemoteViews {
         val palette = palette(model.themeMode)
-        val slim = format == WidgetFormat.SLIM
+        val slim = format != WidgetFormat.SQUARE
         val largeText = context.resources.configuration.fontScale > 1.2f
-        return RemoteViews(context.packageName,
-            if (slim) R.layout.comsat_widget_slim else R.layout.comsat_widget_square).apply {
+        return RemoteViews(context.packageName, when (format) {
+            WidgetFormat.WEATHER -> R.layout.comsat_widget_weather
+            WidgetFormat.SLIM -> R.layout.comsat_widget_slim
+            else -> R.layout.comsat_widget_square
+        }).apply {
             setInt(R.id.widget_panel, "setBackgroundResource", palette.background)
             if (slim) {
                 setInt(R.id.widget_airport_icon, "setColorFilter", palette.atc)
@@ -127,8 +133,77 @@ object WidgetViews {
             source(context, R.id.widget_station_source, null, R.id.widget_station_status,
                 model.stationTitle, model.stationNetwork, R.string.widget_choose_station,
                 model.somaStatus, palette, compactStatus = true)
+            if (format == WidgetFormat.WEATHER) weather(context, model.weather, palette, short, largeText)
             openAppOnClick(context)
         }
+    }
+
+    private fun RemoteViews.weather(
+        context: Context, weather: WidgetWeather, palette: Palette, short: Boolean, largeText: Boolean
+    ) {
+        setInt(R.id.widget_weather_divider, "setBackgroundColor", palette.outline)
+        val condition = weather.condition
+        setImageViewResource(R.id.widget_weather_icon, when {
+            weather.place == null -> R.drawable.widget_weather_location
+            condition == null -> R.drawable.widget_weather_cloudy
+            else -> weatherIcon(condition, weather.isDay)
+        })
+        setInt(R.id.widget_weather_icon, "setColorFilter", if (condition == null) palette.secondary else palette.atc)
+        val temperature = weather.tempC?.let { context.getString(R.string.widget_weather_temperature, it) }
+        val place = weather.place ?: context.getString(R.string.widget_weather_set_location)
+        setTextViewText(R.id.widget_weather_temp, temperature ?: context.getString(R.string.widget_weather_no_data))
+        setTextViewText(R.id.widget_weather_place, place)
+        setTextColor(R.id.widget_weather_temp, palette.text)
+        setTextColor(R.id.widget_weather_place, palette.secondary)
+        setTextViewTextSize(R.id.widget_weather_temp, TypedValue.COMPLEX_UNIT_SP, when {
+            short && largeText -> 11f
+            short -> 14f
+            largeText -> 16f
+            else -> 20f
+        })
+        setTextViewTextSize(R.id.widget_weather_place, TypedValue.COMPLEX_UNIT_SP, when {
+            short && largeText -> 8f
+            short || largeText -> 10f
+            else -> 11f
+        })
+        val reading = if (temperature != null && condition != null) {
+            "$temperature, ${context.getString(conditionLabel(condition))}"
+        } else {
+            context.getString(R.string.widget_weather_unavailable)
+        }
+        setContentDescription(R.id.widget_weather, if (weather.place == null) {
+            context.getString(R.string.widget_weather_description_unset)
+        } else {
+            context.getString(R.string.widget_weather_description, place, reading)
+        })
+        // The readout opens the location picker; the radio half still opens the app.
+        val intent = Intent(context, WeatherLocationActivity::class.java)
+        setOnClickPendingIntent(R.id.widget_weather, PendingIntent.getActivity(
+            context, 21, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        ))
+    }
+
+    private fun weatherIcon(condition: WeatherCondition, day: Boolean) = when (condition) {
+        WeatherCondition.CLEAR -> if (day) R.drawable.widget_weather_clear_day else R.drawable.widget_weather_clear_night
+        WeatherCondition.PARTLY_CLOUDY ->
+            if (day) R.drawable.widget_weather_partly_day else R.drawable.widget_weather_partly_night
+        WeatherCondition.CLOUDY -> R.drawable.widget_weather_cloudy
+        WeatherCondition.FOG -> R.drawable.widget_weather_fog
+        WeatherCondition.DRIZZLE -> R.drawable.widget_weather_drizzle
+        WeatherCondition.RAIN -> R.drawable.widget_weather_rain
+        WeatherCondition.SNOW -> R.drawable.widget_weather_snow
+        WeatherCondition.THUNDERSTORM -> R.drawable.widget_weather_thunder
+    }
+
+    private fun conditionLabel(condition: WeatherCondition) = when (condition) {
+        WeatherCondition.CLEAR -> R.string.weather_clear
+        WeatherCondition.PARTLY_CLOUDY -> R.string.weather_partly_cloudy
+        WeatherCondition.CLOUDY -> R.string.weather_cloudy
+        WeatherCondition.FOG -> R.string.weather_fog
+        WeatherCondition.DRIZZLE -> R.string.weather_drizzle
+        WeatherCondition.RAIN -> R.string.weather_rain
+        WeatherCondition.SNOW -> R.string.weather_snow
+        WeatherCondition.THUNDERSTORM -> R.string.weather_thunderstorm
     }
 
     private fun RemoteViews.openAppOnClick(context: Context) {

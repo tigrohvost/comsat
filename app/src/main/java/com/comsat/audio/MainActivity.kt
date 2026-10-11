@@ -21,6 +21,7 @@ import com.comsat.audio.data.repository.SettingsRepository
 import com.comsat.audio.ui.navigation.ComsatNavGraph
 import com.comsat.audio.ui.theme.ComsatTheme
 import com.comsat.audio.ui.theme.ThemeMode
+import com.comsat.audio.widget.WidgetUpdater
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -30,6 +31,7 @@ import javax.inject.Inject
 class MainActivity : ComponentActivity() {
 
     @Inject lateinit var settingsRepo: SettingsRepository
+    @Inject lateinit var widgetUpdater: WidgetUpdater
 
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* optional */ }
@@ -65,6 +67,12 @@ class MainActivity : ComponentActivity() {
                 ComsatNavGraph(navController = navController)
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // Only a visible app may take a fresh location fix for the weather widget.
+        widgetUpdater.requestWeather(foreground = true)
     }
 
     // Android 13+: the foreground-service notification is invisible without this

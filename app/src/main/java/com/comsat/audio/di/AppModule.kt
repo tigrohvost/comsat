@@ -2,6 +2,7 @@ package com.comsat.audio.di
 
 import com.comsat.audio.BuildConfig
 import com.comsat.audio.data.api.MetarApi
+import com.comsat.audio.data.api.OpenMeteoApi
 import com.comsat.audio.data.api.SomaFmApi
 import dagger.Module
 import dagger.Provides
@@ -79,4 +80,14 @@ object AppModule {
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(MetarApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideOpenMeteoApi(client: OkHttpClient): OpenMeteoApi =
+        Retrofit.Builder()
+            .baseUrl("https://api.open-meteo.com/")
+            .client(client)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+            .create(OpenMeteoApi::class.java)
 }

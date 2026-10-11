@@ -11,7 +11,9 @@
     <string name="widget_name">COMSAT · Airport + Radio</string>
     <string name="widget_name_square">COMSAT · 2 × 2</string>
     <string name="widget_name_slim">COMSAT · 2 × 1</string>
+    <string name="widget_name_weather">COMSAT · Weather 4 × 1</string>
     <string name="widget_description">Your selected airport and radio, with playback status. Tap to open COMSAT.</string>
+    <string name="widget_description_weather">Weather for your current or chosen location beside your airport and radio. Tap the weather to change its location.</string>
     <string name="widget_status_dot" translatable="false">•</string>
     <string name="widget_heading">COMSAT / MIX</string>
     <string name="widget_airport_label">ATC</string>
@@ -27,4 +29,20 @@
     <string name="widget_reconnecting">RECONNECTING</string>
     <string name="widget_offline">OFFLINE</string>
     <string name="widget_not_selected">NOT SELECTED</string>
+    <string name="widget_weather_set_location">Set location</string>
+    <string name="widget_weather_no_data" translatable="false">--°</string>
+    <string name="widget_weather_temperature">%1$d°</string>
+    <string name="widget_weather_unavailable">no current data</string>
+    <string name="widget_weather_description">Weather in %1$s: %2$s. Change location</string>
+    <string name="widget_weather_description_unset">Weather location not set. Set location</string>
+    <string name="weather_location_title">Weather location</string>
+    <string name="weather_current_location">Current location</string>
+    <string name="weather_clear">clear</string>
+    <string name="weather_partly_cloudy">partly cloudy</string>
+    <string name="weather_cloudy">cloudy</string>
+    <string name="weather_fog">fog</string>
+    <string name="weather_drizzle">drizzle</string>
+    <string name="weather_rain">rain</string>
+    <string name="weather_snow">snow</string>
+    <string name="weather_thunderstorm">thunderstorm</string>
 </resources>

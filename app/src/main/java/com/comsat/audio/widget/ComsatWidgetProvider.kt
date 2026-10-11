@@ -17,6 +17,9 @@ class ComsatSquareWidgetProvider : BaseComsatWidgetProvider()
 @AndroidEntryPoint
 class ComsatSlimWidgetProvider : BaseComsatWidgetProvider()
 
+@AndroidEntryPoint
+class ComsatWeatherWidgetProvider : BaseComsatWidgetProvider()
+
 abstract class BaseComsatWidgetProvider : AppWidgetProvider() {
     @Inject lateinit var updater: WidgetUpdater
 

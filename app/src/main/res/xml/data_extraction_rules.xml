@@ -2,5 +2,6 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="." />
+        <exclude domain="file" path="datastore/comsat_weather.preferences_pb" />
     </cloud-backup>
 </data-extraction-rules>
