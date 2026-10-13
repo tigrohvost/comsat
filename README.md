@@ -39,9 +39,9 @@ built in.
    tap it to open the app.
 
 Separate **2 × 2** and **2 × 1** widgets offer compact layouts.
-**COMSAT · Weather 5 × 1** adds current weather and the next 12 hours (four
-hourly readings under a small temperature chart) beside the 2 × 1 airport and
-radio rows; narrower, it shows current weather only. When you place it, choose
+**COMSAT · Weather 5 × 1** adds current weather and the next 12 hours (three
+readings four hours apart under a smooth temperature chart) beside the 2 × 1
+airport and radio rows; narrower, it shows current weather only. When you place it, choose
 your current location (approximate, updated when you open COMSAT), the selected
 airport or a city; tap the weather to change it later. All widget backgrounds
 are translucent. If new widgets are missing after an update, restart your
@@ -123,8 +123,8 @@ Set the repository secrets `COMSAT_KEYSTORE_BASE64` and
 matching semantic tag:
 
 ```bash
-git tag -a v1.6.0 -m "COMSAT 1.6.0"
-git push origin v1.6.0
+git tag -a v1.6.1 -m "COMSAT 1.6.1"
+git push origin v1.6.1
 ```
 
 The release workflow rejects a tag that does not match the app version. A

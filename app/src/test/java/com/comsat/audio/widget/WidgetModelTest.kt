@@ -14,6 +14,7 @@ import com.comsat.audio.ui.theme.ThemeMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WidgetModelTest {
@@ -187,40 +188,60 @@ class WidgetModelTest {
     }
 
     @Test
-    fun `forecast columns follow the current hour by two to eleven hours`() {
+    fun `forecast columns follow the current hour by two, six and ten hours`() {
         val forecast = requireNotNull(widgetForecast(hourly().shuffled(), nowMillis = 3 * hour + 25 * 60_000L))
 
-        assertEquals(listOf(5 * hour, 8 * hour, 11 * hour, 14 * hour), forecast.hours.map { it.timeMillis })
-        assertEquals(listOf(13, 14, 16, 17), forecast.hours.map { it.tempC })
+        assertEquals(listOf(5 * hour, 9 * hour, 13 * hour), forecast.hours.map { it.timeMillis })
+        assertEquals(listOf(13, 15, 17), forecast.hours.map { it.tempC })
         assertEquals(WeatherCondition.RAIN, forecast.hours[0].condition)
-        assertEquals(false, forecast.hours[3].isDay)
+        assertEquals(true, forecast.hours[1].isDay)
+        assertEquals(false, forecast.hours[2].isDay)
     }
 
     @Test
-    fun `the chart spans twelve hours from half past the current hour`() {
+    fun `the chart spans twelve hours from the current hour`() {
         val forecast = requireNotNull(widgetForecast(hourly(), nowMillis = 3 * hour))
 
-        // From the current hour through 13 hours later: one point past each edge
+        // From the current hour through 13 hours later: one point past the right edge
         assertEquals(14, forecast.curve.size)
-        assertEquals(-0.5f / 12, forecast.curve.first().x, 1e-6f)
-        assertEquals(12.5f / 12, forecast.curve.last().x, 1e-6f)
+        assertEquals(0f, forecast.curve.first().x, 0f)
+        assertEquals(13f / 12, forecast.curve.last().x, 1e-6f)
         for ((index, x) in WidgetForecast.HOUR_X.withIndex()) {
             val column = forecast.curve.single { it.x == x }
-            assertEquals(10.0 + (3 + 2 + 3 * index) / 2.0, column.tempC, 0.0)
+            assertEquals(10.0 + (3 + 2 + 4 * index) / 2.0, column.tempC, 0.0)
             assertEquals(column.tempC, forecast.tempAt(x)!!, 0.0)
         }
-        // Halfway between 6:00 and 7:00
-        assertEquals(13.25, forecast.tempAt(0.25f)!!, 1e-5)
+        // Halfway between 4:00 and 5:00
+        assertEquals(12.25, forecast.tempAt(0.125f)!!, 1e-5)
         assertNull(forecast.tempAt(1.1f))
         assertNull(forecast.tempAt(-0.1f))
+    }
+
+    @Test
+    fun `the smooth line passes through each hour without overshooting`() {
+        // A warm afternoon between level stretches
+        val temps = listOf(10.0, 10.0, 12.0, 15.0, 14.0, 9.0, 9.0)
+        val forecast = WidgetForecast(emptyList(), temps.mapIndexed { index, temp -> ChartPoint(index.toFloat(), temp) })
+
+        for (point in forecast.curve) assertEquals(point.tempC, forecast.tempAt(point.x)!!, 1e-9)
+        // Level along a flat stretch and where the temperature turns
+        assertEquals(listOf(0.0, 0.0, 2.5, 0.0, -3.0, 0.0, 0.0), forecast.slopes)
+        for ((a, b) in forecast.curve.zipWithNext()) {
+            for (step in 1 until 10) {
+                val temp = forecast.tempAt(a.x + (b.x - a.x) * step / 10)!!
+                assertTrue(temp >= minOf(a.tempC, b.tempC) - 1e-9 && temp <= maxOf(a.tempC, b.tempC) + 1e-9)
+            }
+        }
+        // Curved through the rise: a straight line gives 13.5 here.
+        assertEquals(13.8125, forecast.tempAt(2.5f)!!, 1e-9)
     }
 
     @Test
     fun `incomplete hourly data shows no forecast`() {
         assertNull(widgetForecast(emptyList(), nowMillis = 0L))
         // Ends before the last column
-        assertNull(widgetForecast(hourly(count = 14), nowMillis = 3 * hour))
-        assertNull(widgetForecast(hourly().filter { it.timeMillis != 8 * hour }, nowMillis = 3 * hour))
+        assertNull(widgetForecast(hourly(count = 13), nowMillis = 3 * hour))
+        assertNull(widgetForecast(hourly().filter { it.timeMillis != 9 * hour }, nowMillis = 3 * hour))
         // Starts after now
         assertNull(widgetForecast(hourly(from = hour), nowMillis = 0L))
     }

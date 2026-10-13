@@ -43,13 +43,13 @@ object WidgetViews {
     private const val TALL_CHART_MIN_HEIGHT = 72f
     private const val MIN_CHART_SPAN_C = 4.0
     private val FORECAST_ICONS = intArrayOf(
-        R.id.widget_forecast_icon_1, R.id.widget_forecast_icon_2, R.id.widget_forecast_icon_3, R.id.widget_forecast_icon_4
+        R.id.widget_forecast_icon_1, R.id.widget_forecast_icon_2, R.id.widget_forecast_icon_3
     )
     private val FORECAST_TEMPS = intArrayOf(
-        R.id.widget_forecast_temp_1, R.id.widget_forecast_temp_2, R.id.widget_forecast_temp_3, R.id.widget_forecast_temp_4
+        R.id.widget_forecast_temp_1, R.id.widget_forecast_temp_2, R.id.widget_forecast_temp_3
     )
     private val FORECAST_TIMES = intArrayOf(
-        R.id.widget_forecast_time_1, R.id.widget_forecast_time_2, R.id.widget_forecast_time_3, R.id.widget_forecast_time_4
+        R.id.widget_forecast_time_1, R.id.widget_forecast_time_2, R.id.widget_forecast_time_3
     )
 
     fun render(
@@ -304,13 +304,22 @@ object WidgetViews {
         fun x(fraction: Float) = fraction * width
         fun y(tempC: Double) = (inset + (high - tempC) / (high - low) * (height - 2 * inset)).toFloat()
 
-        val line = Path()
-        forecast.curve.forEachIndexed { index, point ->
-            if (index == 0) line.moveTo(x(point.x), y(point.tempC)) else line.lineTo(x(point.x), y(point.tempC))
+        // Bézier segments with the curve's slopes at both ends: the line tempAt follows
+        val curve = forecast.curve
+        val line = Path().apply { moveTo(x(curve[0].x), y(curve[0].tempC)) }
+        for (index in 1..curve.lastIndex) {
+            val previous = curve[index - 1]
+            val point = curve[index]
+            val third = (point.x - previous.x) / 3
+            line.cubicTo(
+                x(previous.x + third), y(previous.tempC + forecast.slopes[index - 1] * third),
+                x(point.x - third), y(point.tempC - forecast.slopes[index] * third),
+                x(point.x), y(point.tempC)
+            )
         }
         val area = Path(line).apply {
-            lineTo(x(forecast.curve.last().x), height.toFloat())
-            lineTo(x(forecast.curve.first().x), height.toFloat())
+            lineTo(x(curve.last().x), height.toFloat())
+            lineTo(x(curve.first().x), height.toFloat())
             close()
         }
         val bitmap = createBitmap(width, height)
