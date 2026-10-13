@@ -19,6 +19,8 @@ import com.comsat.audio.data.model.WeatherPlace
 import com.comsat.audio.data.model.WeatherReport
 import com.comsat.audio.data.model.WeatherSource
 import com.comsat.audio.data.model.WeatherState
+import com.comsat.audio.data.model.decodeHourly
+import com.comsat.audio.data.model.encodeHourly
 import com.comsat.audio.data.model.metCoordinate
 import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -60,6 +62,7 @@ class WeatherRepository @Inject constructor(
         val REPORT_LAT = doublePreferencesKey("report_lat")
         val REPORT_LON = doublePreferencesKey("report_lon")
         val REPORT_TIME = longPreferencesKey("report_time")
+        val REPORT_HOURLY = stringPreferencesKey("report_hourly")
         val PROVIDER = stringPreferencesKey("provider")
     }
 
@@ -124,7 +127,9 @@ class WeatherRepository @Inject constructor(
         }
         val target = current.target(airport) ?: return@withLock
         if (!force) {
-            if (current.report?.isUsable(target, now, REPORT_TTL_MS) == true) return@withLock
+            // Reports saved before 1.6.0 have no hourly forecast; replace them early.
+            val report = current.report?.takeIf { it.hourly.isNotEmpty() }
+            if (report?.isUsable(target, now, REPORT_TTL_MS) == true) return@withLock
             val attempt = lastAttempt
             if (attempt != null && attempt.first.isNear(target.latitude, target.longitude) &&
                 now - attempt.second in 0 until RETRY_INTERVAL_MS
@@ -146,6 +151,7 @@ class WeatherRepository @Inject constructor(
             it[Keys.REPORT_LAT] = report.latitude
             it[Keys.REPORT_LON] = report.longitude
             it[Keys.REPORT_TIME] = report.fetchedAtMillis
+            it[Keys.REPORT_HOURLY] = encodeHourly(report.hourly)
         }
     }
 
@@ -153,7 +159,7 @@ class WeatherRepository @Inject constructor(
         withTimeoutOrNull(FETCH_TIMEOUT_MS) {
             when (provider) {
                 Provider.OPEN_METEO ->
-                    openMeteo.get().getCurrent(place.latitude, place.longitude).current?.toReport(place, now)
+                    openMeteo.get().getForecast(place.latitude, place.longitude).toReport(place, now)
                 Provider.MET_NORWAY ->
                     metNorway.get().getForecast(metCoordinate(place.latitude), metCoordinate(place.longitude))
                         .toReport(place, now)
@@ -209,7 +215,8 @@ class WeatherRepository @Inject constructor(
                 isDay = prefs[Keys.REPORT_DAY] ?: true,
                 latitude = prefs[Keys.REPORT_LAT] ?: return@run null,
                 longitude = prefs[Keys.REPORT_LON] ?: return@run null,
-                fetchedAtMillis = prefs[Keys.REPORT_TIME] ?: return@run null
+                fetchedAtMillis = prefs[Keys.REPORT_TIME] ?: return@run null,
+                hourly = decodeHourly(prefs[Keys.REPORT_HOURLY])
             )
         }
         return WeatherState(

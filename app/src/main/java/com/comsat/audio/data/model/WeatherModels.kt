@@ -8,8 +8,13 @@ import kotlin.math.abs
 // ─── Open-Meteo ───────────────────────────────────────────────────────────────
 
 data class OpenMeteoForecastDto(
-    @SerializedName("current") val current: OpenMeteoCurrentDto? = null
-)
+    @SerializedName("current") val current: OpenMeteoCurrentDto? = null,
+    @SerializedName("hourly") val hourly: OpenMeteoHourlyDto? = null
+) {
+    fun toReport(place: WeatherPlace, fetchedAtMillis: Long): WeatherReport? =
+        current?.toReport(place, fetchedAtMillis)
+            ?.copy(hourly = upcomingHours(hourly?.toHours().orEmpty(), fetchedAtMillis))
+}
 
 data class OpenMeteoCurrentDto(
     @SerializedName("temperature_2m") val temperature: Double? = null,
@@ -24,6 +29,23 @@ data class OpenMeteoCurrentDto(
             latitude = place.latitude,
             longitude = place.longitude,
             fetchedAtMillis = fetchedAtMillis
+        )
+    }
+}
+
+// Parallel arrays; times are Unix seconds (timeformat=unixtime).
+data class OpenMeteoHourlyDto(
+    @SerializedName("time") val time: List<Long>? = null,
+    @SerializedName("temperature_2m") val temperature: List<Double?>? = null,
+    @SerializedName("weather_code") val weatherCode: List<Int?>? = null,
+    @SerializedName("is_day") val isDay: List<Int?>? = null
+) {
+    fun toHours(): List<HourlyWeather> = time.orEmpty().mapIndexedNotNull { index, seconds ->
+        HourlyWeather(
+            timeMillis = seconds * 1000,
+            tempC = temperature?.getOrNull(index) ?: return@mapIndexedNotNull null,
+            condition = weatherCondition(weatherCode?.getOrNull(index) ?: return@mapIndexedNotNull null),
+            isDay = isDay?.getOrNull(index)?.let { it != 0 } ?: true
         )
     }
 }
@@ -48,7 +70,8 @@ data class MetForecastDto(
             isDay = !symbol.endsWith("_night"),
             latitude = place.latitude,
             longitude = place.longitude,
-            fetchedAtMillis = fetchedAtMillis
+            fetchedAtMillis = fetchedAtMillis,
+            hourly = upcomingHours(series.mapNotNull { it.toHour() }, fetchedAtMillis)
         )
     }
 }
@@ -62,6 +85,18 @@ data class MetStepDto(
     @SerializedName("data") val data: MetStepDataDto? = null
 ) {
     fun startMillis(): Long? = time?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
+
+    // Only the hourly part of the series has a next_1_hours symbol.
+    fun toHour(): HourlyWeather? {
+        val data = data ?: return null
+        val symbol = data.nextHour?.summary?.symbolCode ?: return null
+        return HourlyWeather(
+            timeMillis = startMillis() ?: return null,
+            tempC = data.instant?.details?.airTemperature ?: return null,
+            condition = metCondition(symbol),
+            isDay = !symbol.endsWith("_night")
+        )
+    }
 }
 
 data class MetStepDataDto(
@@ -167,11 +202,48 @@ data class WeatherReport(
     // matched against the current selection.
     val latitude: Double,
     val longitude: Double,
-    val fetchedAtMillis: Long
+    val fetchedAtMillis: Long,
+    // From the hour in effect at fetchedAtMillis on, hour by hour
+    val hourly: List<HourlyWeather> = emptyList()
 ) {
     fun isUsable(place: WeatherPlace, nowMillis: Long, maxAgeMillis: Long): Boolean =
         place.isNear(latitude, longitude) && nowMillis - fetchedAtMillis in 0 until maxAgeMillis
 }
+
+data class HourlyWeather(
+    // Start of the hour
+    val timeMillis: Long,
+    val tempC: Double,
+    val condition: WeatherCondition,
+    val isDay: Boolean
+)
+
+// Enough for the widget's next 12 hours while a report is still shown (up to 3 h old).
+const val FORECAST_HOURS = 24
+
+// Drops hours that are already over, keeping the one in effect at [nowMillis].
+fun upcomingHours(hours: List<HourlyWeather>, nowMillis: Long): List<HourlyWeather> {
+    val sorted = hours.sortedBy { it.timeMillis }
+    val current = sorted.indexOfLast { it.timeMillis <= nowMillis }.coerceAtLeast(0)
+    return sorted.drop(current).take(FORECAST_HOURS)
+}
+
+// Compact form for preferences: "seconds,temp,CONDITION,day;…"
+fun encodeHourly(hours: List<HourlyWeather>): String = hours.joinToString(";") {
+    String.format(Locale.ROOT, "%d,%.1f,%s,%d", it.timeMillis / 1000, it.tempC, it.condition.name, if (it.isDay) 1 else 0)
+}
+
+fun decodeHourly(encoded: String?): List<HourlyWeather> =
+    encoded.orEmpty().split(';').mapNotNull { entry ->
+        val fields = entry.split(',')
+        if (fields.size != 4) return@mapNotNull null
+        HourlyWeather(
+            timeMillis = (fields[0].toLongOrNull() ?: return@mapNotNull null) * 1000,
+            tempC = fields[1].toDoubleOrNull() ?: return@mapNotNull null,
+            condition = WeatherCondition.entries.find { it.name == fields[2] } ?: return@mapNotNull null,
+            isDay = fields[3] != "0"
+        )
+    }
 
 enum class WeatherSource { CURRENT_LOCATION, AIRPORT, PLACE }
 

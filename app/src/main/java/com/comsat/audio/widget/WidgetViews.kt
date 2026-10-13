@@ -4,24 +4,54 @@ import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.Shader
 import android.os.Build
 import android.os.Bundle
+import android.text.format.DateFormat
 import android.util.SizeF
 import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
 import androidx.compose.ui.graphics.toArgb
+import androidx.core.graphics.ColorUtils
+import androidx.core.graphics.createBitmap
 import com.comsat.audio.MainActivity
 import com.comsat.audio.R
 import com.comsat.audio.data.model.StreamStatus
 import com.comsat.audio.data.model.WeatherCondition
 import com.comsat.audio.ui.theme.*
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 // WEATHER pairs a weather readout with the SLIM rows.
 enum class WidgetFormat { FULL, SQUARE, SLIM, WEATHER }
 
 /** A small, event-driven display: no network requests or animation in the launcher. */
 object WidgetViews {
+    // How much of the 12-hour forecast fits beside the current weather
+    private enum class ForecastSize { NONE, TEXT, CHART, TALL_CHART }
+
+    // A 5 × 1 cell span, with room for the forecast beside the readout and radio rows
+    private const val FORECAST_MIN_WIDTH = 320f
+    private const val TALL_CHART_MIN_HEIGHT = 72f
+    private const val MIN_CHART_SPAN_C = 4.0
+    private val FORECAST_ICONS = intArrayOf(
+        R.id.widget_forecast_icon_1, R.id.widget_forecast_icon_2, R.id.widget_forecast_icon_3, R.id.widget_forecast_icon_4
+    )
+    private val FORECAST_TEMPS = intArrayOf(
+        R.id.widget_forecast_temp_1, R.id.widget_forecast_temp_2, R.id.widget_forecast_temp_3, R.id.widget_forecast_temp_4
+    )
+    private val FORECAST_TIMES = intArrayOf(
+        R.id.widget_forecast_time_1, R.id.widget_forecast_time_2, R.id.widget_forecast_time_3, R.id.widget_forecast_time_4
+    )
+
     fun render(
         context: Context, model: WidgetModel, options: Bundle, format: WidgetFormat = WidgetFormat.FULL
     ): RemoteViews {
@@ -30,13 +60,28 @@ object WidgetViews {
             val minimumHeight = if (format == WidgetFormat.SQUARE) 80 else 40
             val comfortableHeight = if (format == WidgetFormat.SQUARE) 110 else 56
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                return RemoteViews(mapOf(
+                val sizes = mutableMapOf(
                     SizeF(minimumWidth, minimumHeight.toFloat()) to createSmall(context, model, format, short = true),
                     SizeF(minimumWidth, comfortableHeight.toFloat()) to createSmall(context, model, format, short = false)
-                ))
+                )
+                if (format == WidgetFormat.WEATHER) {
+                    sizes[SizeF(FORECAST_MIN_WIDTH, minimumHeight.toFloat())] =
+                        createSmall(context, model, format, short = true, forecastSize = ForecastSize.TEXT)
+                    sizes[SizeF(FORECAST_MIN_WIDTH, comfortableHeight.toFloat())] =
+                        createSmall(context, model, format, short = false, forecastSize = ForecastSize.CHART)
+                    sizes[SizeF(FORECAST_MIN_WIDTH, TALL_CHART_MIN_HEIGHT)] =
+                        createSmall(context, model, format, short = false, forecastSize = ForecastSize.TALL_CHART)
+                }
+                return RemoteViews(sizes)
             }
-            return createSmall(context, model, format,
-                short = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, comfortableHeight) < comfortableHeight)
+            val short = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, comfortableHeight) < comfortableHeight
+            val forecastSize = when {
+                format != WidgetFormat.WEATHER ||
+                    options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0) < FORECAST_MIN_WIDTH -> ForecastSize.NONE
+                short -> ForecastSize.TEXT
+                else -> ForecastSize.CHART
+            }
+            return createSmall(context, model, format, short, forecastSize)
         }
         val largeText = context.resources.configuration.fontScale > 1.2f
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -85,13 +130,17 @@ object WidgetViews {
     }
 
     private fun createSmall(
-        context: Context, model: WidgetModel, format: WidgetFormat, short: Boolean
+        context: Context, model: WidgetModel, format: WidgetFormat, short: Boolean,
+        forecastSize: ForecastSize = ForecastSize.NONE
     ): RemoteViews {
         val palette = palette(model.themeMode)
         val slim = format != WidgetFormat.SQUARE
         val largeText = context.resources.configuration.fontScale > 1.2f
+        // Without hourly data the wide widget keeps the plain weather layout.
+        val forecast = model.weather.forecast?.takeIf { forecastSize != ForecastSize.NONE }
         return RemoteViews(context.packageName, when (format) {
-            WidgetFormat.WEATHER -> R.layout.comsat_widget_weather
+            WidgetFormat.WEATHER ->
+                if (forecast != null) R.layout.comsat_widget_weather_forecast else R.layout.comsat_widget_weather
             WidgetFormat.SLIM -> R.layout.comsat_widget_slim
             else -> R.layout.comsat_widget_square
         }).apply {
@@ -133,7 +182,10 @@ object WidgetViews {
             source(context, R.id.widget_station_source, null, R.id.widget_station_status,
                 model.stationTitle, model.stationNetwork, R.string.widget_choose_station,
                 model.somaStatus, palette, compactStatus = true)
-            if (format == WidgetFormat.WEATHER) weather(context, model.weather, palette, short, largeText)
+            if (format == WidgetFormat.WEATHER) {
+                weather(context, model.weather, palette, short, largeText)
+                if (forecast != null) forecast(context, forecast, palette, forecastSize, largeText)
+            }
             openAppOnClick(context)
         }
     }
@@ -177,10 +229,110 @@ object WidgetViews {
             context.getString(R.string.widget_weather_description, place, reading)
         })
         // The readout opens the location picker; the radio half still opens the app.
-        val intent = Intent(context, WeatherLocationActivity::class.java)
-        setOnClickPendingIntent(R.id.widget_weather, PendingIntent.getActivity(
-            context, 21, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        ))
+        setOnClickPendingIntent(R.id.widget_weather, weatherLocationIntent(context))
+    }
+
+    private fun weatherLocationIntent(context: Context): PendingIntent = PendingIntent.getActivity(
+        context, 21, Intent(context, WeatherLocationActivity::class.java),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+
+    private fun RemoteViews.forecast(
+        context: Context, forecast: WidgetForecast, palette: Palette, size: ForecastSize, largeText: Boolean
+    ) {
+        val skeleton = if (DateFormat.is24HourFormat(context)) "Hm" else "ha"
+        val timeFormat = DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(Locale.getDefault(), skeleton))
+            .withZone(ZoneId.systemDefault())
+        val tempSize = when {
+            largeText -> 8f
+            size == ForecastSize.TEXT -> 9f
+            else -> 10f
+        }
+        val timeSize = when {
+            largeText -> 7f
+            size == ForecastSize.TEXT -> 8f
+            else -> 8.5f
+        }
+        val spoken = forecast.hours.mapIndexed { index, hour ->
+            val time = timeFormat.format(Instant.ofEpochMilli(hour.timeMillis))
+            val temperature = context.getString(R.string.widget_weather_temperature, hour.tempC)
+            setTextViewText(FORECAST_TEMPS[index], temperature)
+            setTextColor(FORECAST_TEMPS[index], palette.text)
+            setTextViewTextSize(FORECAST_TEMPS[index], TypedValue.COMPLEX_UNIT_SP, tempSize)
+            setTextViewText(FORECAST_TIMES[index], time)
+            setTextColor(FORECAST_TIMES[index], palette.secondary)
+            setTextViewTextSize(FORECAST_TIMES[index], TypedValue.COMPLEX_UNIT_SP, timeSize)
+            // Enlarged text needs the column width for the temperature.
+            setViewVisibility(FORECAST_ICONS[index], if (largeText) View.GONE else View.VISIBLE)
+            setImageViewResource(FORECAST_ICONS[index], weatherIcon(hour.condition, hour.isDay))
+            setInt(FORECAST_ICONS[index], "setColorFilter", palette.atc)
+            context.getString(R.string.widget_forecast_hour, time, temperature, context.getString(conditionLabel(hour.condition)))
+        }
+        if (size == ForecastSize.TEXT) {
+            setViewVisibility(R.id.widget_forecast_chart, View.GONE)
+        } else {
+            val height = if (size == ForecastSize.TALL_CHART) {
+                R.dimen.widget_forecast_chart_height_tall
+            } else {
+                R.dimen.widget_forecast_chart_height
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) setViewLayoutHeightDimen(R.id.widget_forecast_chart, height)
+            setImageViewBitmap(R.id.widget_forecast_chart, forecastChart(context, forecast, palette.atc, height))
+        }
+        setContentDescription(R.id.widget_forecast,
+            context.getString(R.string.widget_forecast_description, spoken.joinToString("; ")))
+        setOnClickPendingIntent(R.id.widget_forecast, weatherLocationIntent(context))
+    }
+
+    // Drawn at the view's exact size: fitXY then only maps pixels one to one.
+    private fun forecastChart(context: Context, forecast: WidgetForecast, color: Int, heightDimen: Int): Bitmap {
+        val resources = context.resources
+        val density = resources.displayMetrics.density
+        val width = resources.getDimensionPixelSize(R.dimen.widget_forecast_width)
+        val height = resources.getDimensionPixelSize(heightDimen)
+        val stroke = 1.5f * density
+        val dot = 2.25f * density
+        val inset = dot + stroke / 2
+        var low = forecast.curve.minOf { it.tempC }
+        var high = forecast.curve.maxOf { it.tempC }
+        // A degree or two of change should not fill the whole height.
+        if (high - low < MIN_CHART_SPAN_C) {
+            val middle = (high + low) / 2
+            low = middle - MIN_CHART_SPAN_C / 2
+            high = middle + MIN_CHART_SPAN_C / 2
+        }
+        fun x(fraction: Float) = fraction * width
+        fun y(tempC: Double) = (inset + (high - tempC) / (high - low) * (height - 2 * inset)).toFloat()
+
+        val line = Path()
+        forecast.curve.forEachIndexed { index, point ->
+            if (index == 0) line.moveTo(x(point.x), y(point.tempC)) else line.lineTo(x(point.x), y(point.tempC))
+        }
+        val area = Path(line).apply {
+            lineTo(x(forecast.curve.last().x), height.toFloat())
+            lineTo(x(forecast.curve.first().x), height.toFloat())
+            close()
+        }
+        val bitmap = createBitmap(width, height)
+        Canvas(bitmap).apply {
+            drawPath(area, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = LinearGradient(0f, 0f, 0f, height.toFloat(),
+                    ColorUtils.setAlphaComponent(color, 0x50), ColorUtils.setAlphaComponent(color, 0),
+                    Shader.TileMode.CLAMP)
+            })
+            drawPath(line, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = stroke
+                strokeJoin = Paint.Join.ROUND
+                strokeCap = Paint.Cap.ROUND
+                this.color = color
+            })
+            val dots = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
+            for (hourX in WidgetForecast.HOUR_X) {
+                forecast.tempAt(hourX)?.let { drawCircle(x(hourX), y(it), dot, dots) }
+            }
+        }
+        return bitmap
     }
 
     private fun weatherIcon(condition: WeatherCondition, day: Boolean) = when (condition) {

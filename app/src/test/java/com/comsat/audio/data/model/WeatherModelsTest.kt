@@ -102,6 +102,84 @@ class WeatherModelsTest {
     }
 
     @Test
+    fun openMeteoHourlyForecastStartsAtTheCurrentHour() {
+        val json = """
+            {"current":{"time":1791875700,"interval":900,"temperature_2m":9.8,"weather_code":3,"is_day":1},
+             "hourly":{"time":[1791871200,1791874800,1791878400,1791882000],
+                       "temperature_2m":[9.6,9.8,null,10.0],
+                       "weather_code":[3,61,3,95],
+                       "is_day":[1,1,1,0]}}
+        """.trimIndent()
+        val fetchedAt = 1791875700_000L
+        val report = Gson().fromJson(json, OpenMeteoForecastDto::class.java).toReport(moscow, fetchedAt)!!
+
+        assertEquals(9.8, report.tempC, 0.001)
+        // The past hour is dropped and an hour without a temperature skipped.
+        assertEquals(listOf(1791874800_000L, 1791882000_000L), report.hourly.map { it.timeMillis })
+        assertEquals(WeatherCondition.RAIN, report.hourly[0].condition)
+        assertEquals(WeatherCondition.THUNDERSTORM, report.hourly[1].condition)
+        assertFalse(report.hourly[1].isDay)
+        // Without hourly data the current reading still counts.
+        val currentOnly = """{"current":{"temperature_2m":1.0,"weather_code":0,"is_day":1}}"""
+        assertTrue(Gson().fromJson(currentOnly, OpenMeteoForecastDto::class.java).toReport(moscow, 0L)!!.hourly.isEmpty())
+    }
+
+    @Test
+    fun metHourlyForecastUsesTheHourlySteps() {
+        val json = """
+            {"properties":{"timeseries":[
+               {"time":"2026-10-13T06:00:00Z","data":{"instant":{"details":{"air_temperature":9.0}},
+                  "next_1_hours":{"summary":{"symbol_code":"cloudy"}}}},
+               {"time":"2026-10-13T07:00:00Z","data":{"instant":{"details":{"air_temperature":10.0}},
+                  "next_1_hours":{"summary":{"symbol_code":"rain"}}}},
+               {"time":"2026-10-13T08:00:00Z","data":{"instant":{"details":{"air_temperature":10.3}},
+                  "next_1_hours":{"summary":{"symbol_code":"clearsky_night"}}}},
+               {"time":"2026-10-16T00:00:00Z","data":{"instant":{"details":{"air_temperature":3.6}},
+                  "next_6_hours":{"summary":{"symbol_code":"snow"}}}}
+            ]}}
+        """.trimIndent()
+        val at0725 = Instant.parse("2026-10-13T07:25:00Z").toEpochMilli()
+        val report = Gson().fromJson(json, MetForecastDto::class.java).toReport(moscow, at0725)!!
+
+        assertEquals(
+            listOf(Instant.parse("2026-10-13T07:00:00Z").toEpochMilli(), Instant.parse("2026-10-13T08:00:00Z").toEpochMilli()),
+            report.hourly.map { it.timeMillis }
+        )
+        assertEquals(10.3, report.hourly[1].tempC, 0.001)
+        assertEquals(WeatherCondition.CLEAR, report.hourly[1].condition)
+        assertFalse(report.hourly[1].isDay)
+    }
+
+    @Test
+    fun upcomingHoursKeepTheHourInEffectAndADayAhead() {
+        val hours = (0 until 30).map { HourlyWeather(it * 3_600_000L, it.toDouble(), WeatherCondition.CLEAR, true) }
+
+        val upcoming = upcomingHours(hours.reversed(), nowMillis = 2 * 3_600_000L + 1)
+        assertEquals(FORECAST_HOURS, upcoming.size)
+        assertEquals(2 * 3_600_000L, upcoming.first().timeMillis)
+        // A clock behind the forecast keeps it from the start.
+        assertEquals(0L, upcomingHours(hours, nowMillis = -1L).first().timeMillis)
+    }
+
+    @Test
+    fun hourlyForecastSurvivesPreferences() {
+        val hours = listOf(
+            HourlyWeather(1791874800_000L, -3.64, WeatherCondition.SNOW, false),
+            HourlyWeather(1791878400_000L, 12.0, WeatherCondition.PARTLY_CLOUDY, true)
+        )
+        val decoded = decodeHourly(encodeHourly(hours))
+
+        assertEquals(2, decoded.size)
+        assertEquals(-3.6, decoded[0].tempC, 0.001)
+        assertEquals(hours[1], decoded[1])
+        assertEquals(hours[0].copy(tempC = -3.6), decoded[0])
+        assertTrue(decodeHourly(null).isEmpty())
+        assertTrue(decodeHourly("").isEmpty())
+        // Unknown conditions and malformed entries are skipped.
+        assertEquals(1, decodeHourly("1,2.0,HAIL,1;2,3.0,RAIN,1;x,1,CLEAR,1;3,4.0").size)
+    }
+
+    @Test
     fun metSymbolsMapToConditions() {
         assertEquals(WeatherCondition.CLEAR, metCondition("clearsky_polartwilight"))
         assertEquals(WeatherCondition.PARTLY_CLOUDY, metCondition("fair_night"))

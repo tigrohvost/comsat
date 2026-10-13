@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Weather widget forecast: four 30 dp hour columns under the chart -->
+    <dimen name="widget_forecast_width">120dp</dimen>
+    <dimen name="widget_forecast_chart_height">18dp</dimen>
+    <dimen name="widget_forecast_chart_height_tall">30dp</dimen>
+    <!-- Keeps a long place name from crowding the forecast and the radio rows -->
+    <dimen name="widget_weather_text_max_width">64dp</dimen>
+</resources>

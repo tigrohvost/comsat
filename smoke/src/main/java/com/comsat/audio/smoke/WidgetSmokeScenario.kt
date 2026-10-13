@@ -163,7 +163,8 @@ internal class WidgetSmokeScenario(
         val smallWidgets = listOf(
             SmallWidget("ComsatSquareWidgetProvider", "2x2", 2, 2, 110, 80, 140, 140),
             SmallWidget("ComsatSlimWidgetProvider", "2x1", 2, 1, 110, 40, 140, 70),
-            SmallWidget("ComsatWeatherWidgetProvider", "4x1", 4, 1, 250, 40, 320, 70)
+            // 352 × 84 dp is a 5 × 1 span on a 5-column Lawnchair grid.
+            SmallWidget("ComsatWeatherWidgetProvider", "5x1", 5, 1, 250, 40, 352, 84)
         )
         val smallIds = smallWidgets.map { small ->
             val name = small.provider
@@ -234,7 +235,8 @@ internal class WidgetSmokeScenario(
         }
     }
 
-    // The emulator is offline: the weather half shows its place without a reading.
+    // The emulator is offline: the weather half shows its place without a reading
+    // and, without hourly data, no forecast even at full width.
     private fun verifyWeatherLocation(small: SmallWidget) {
         // Bound without its configuration screen, the readout asks for a location.
         visible(widget("widget_weather_temp").text("--°"))
@@ -253,8 +255,9 @@ internal class WidgetSmokeScenario(
         showHost(small.comfortableWidth, small.comfortableHeight)
         visible(widget("widget_weather_place").text("Los Angeles"))
         visible(widget("widget_weather_temp").text("--°"))
+        assertTrue("Forecast shown without hourly data", device.findObject(widget("widget_forecast")) == null)
         verifyLayout(small = true, weather = true)
-        screenshot("widget-4x1-airport-weather")
+        screenshot("widget-5x1-airport-weather")
     }
 
     private fun showHost(width: Int = 200, height: Int = 160) {

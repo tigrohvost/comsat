@@ -11,9 +11,9 @@
     <string name="widget_name">COMSAT · Airport + Radio</string>
     <string name="widget_name_square">COMSAT · 2 × 2</string>
     <string name="widget_name_slim">COMSAT · 2 × 1</string>
-    <string name="widget_name_weather">COMSAT · Weather 4 × 1</string>
+    <string name="widget_name_weather">COMSAT · Weather 5 × 1</string>
     <string name="widget_description">Your selected airport and radio, with playback status. Tap to open COMSAT.</string>
-    <string name="widget_description_weather">Weather for your current or chosen location beside your airport and radio. Tap the weather to change its location.</string>
+    <string name="widget_description_weather">Current weather and the next 12 hours for your current or chosen location, beside your airport and radio. Tap the weather to change its location.</string>
     <string name="widget_status_dot" translatable="false">•</string>
     <string name="widget_heading">COMSAT / MIX</string>
     <string name="widget_airport_label">ATC</string>
@@ -35,6 +35,9 @@
     <string name="widget_weather_unavailable">no current data</string>
     <string name="widget_weather_description">Weather in %1$s: %2$s. Change location</string>
     <string name="widget_weather_description_unset">Weather location not set. Set location</string>
+    <!-- Time, temperature, condition: "18:00 7°, rain" -->
+    <string name="widget_forecast_hour">%1$s %2$s, %3$s</string>
+    <string name="widget_forecast_description">Next 12 hours: %1$s. Change location</string>
     <string name="weather_location_title">Weather location</string>
     <string name="weather_current_location">Current location</string>
     <string name="weather_clear">clear</string>

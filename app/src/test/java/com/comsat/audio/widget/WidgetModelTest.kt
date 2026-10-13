@@ -2,6 +2,7 @@ package com.comsat.audio.widget
 
 import com.comsat.audio.data.model.Airport
 import com.comsat.audio.data.model.AtcFeed
+import com.comsat.audio.data.model.HourlyWeather
 import com.comsat.audio.data.model.StreamStatus
 import com.comsat.audio.data.model.WeatherCondition
 import com.comsat.audio.data.model.WeatherPlace
@@ -11,6 +12,7 @@ import com.comsat.audio.data.model.WeatherState
 import com.comsat.audio.data.repository.AppSettings
 import com.comsat.audio.ui.theme.ThemeMode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -175,5 +177,62 @@ class WidgetModelTest {
         assertEquals(12, widgetWeather(
             state.copy(deviceLocation = tver, report = report(tver, tempC = 11.5)), airport, nowMillis = 0L
         ).tempC)
+    }
+
+    private val hour = 3_600_000L
+
+    // Hourly temperatures 10.0, 10.5, 11.0… from midnight UTC on
+    private fun hourly(count: Int = 24, from: Long = 0L) = (0 until count).map {
+        HourlyWeather(from + it * hour, 10.0 + it / 2.0, if (it % 2 == 0) WeatherCondition.CLEAR else WeatherCondition.RAIN, it < 12)
+    }
+
+    @Test
+    fun `forecast columns follow the current hour by two to eleven hours`() {
+        val forecast = requireNotNull(widgetForecast(hourly().shuffled(), nowMillis = 3 * hour + 25 * 60_000L))
+
+        assertEquals(listOf(5 * hour, 8 * hour, 11 * hour, 14 * hour), forecast.hours.map { it.timeMillis })
+        assertEquals(listOf(13, 14, 16, 17), forecast.hours.map { it.tempC })
+        assertEquals(WeatherCondition.RAIN, forecast.hours[0].condition)
+        assertEquals(false, forecast.hours[3].isDay)
+    }
+
+    @Test
+    fun `the chart spans twelve hours from half past the current hour`() {
+        val forecast = requireNotNull(widgetForecast(hourly(), nowMillis = 3 * hour))
+
+        // From the current hour through 13 hours later: one point past each edge
+        assertEquals(14, forecast.curve.size)
+        assertEquals(-0.5f / 12, forecast.curve.first().x, 1e-6f)
+        assertEquals(12.5f / 12, forecast.curve.last().x, 1e-6f)
+        for ((index, x) in WidgetForecast.HOUR_X.withIndex()) {
+            val column = forecast.curve.single { it.x == x }
+            assertEquals(10.0 + (3 + 2 + 3 * index) / 2.0, column.tempC, 0.0)
+            assertEquals(column.tempC, forecast.tempAt(x)!!, 0.0)
+        }
+        // Halfway between 6:00 and 7:00
+        assertEquals(13.25, forecast.tempAt(0.25f)!!, 1e-5)
+        assertNull(forecast.tempAt(1.1f))
+        assertNull(forecast.tempAt(-0.1f))
+    }
+
+    @Test
+    fun `incomplete hourly data shows no forecast`() {
+        assertNull(widgetForecast(emptyList(), nowMillis = 0L))
+        // Ends before the last column
+        assertNull(widgetForecast(hourly(count = 14), nowMillis = 3 * hour))
+        assertNull(widgetForecast(hourly().filter { it.timeMillis != 8 * hour }, nowMillis = 3 * hour))
+        // Starts after now
+        assertNull(widgetForecast(hourly(from = hour), nowMillis = 0L))
+    }
+
+    @Test
+    fun `the widget shows the forecast of a fresh report`() {
+        val state = WeatherState(
+            source = WeatherSource.PLACE, place = tver, report = report(tver).copy(hourly = hourly())
+        )
+
+        assertNotNull(widgetWeather(state, airport, nowMillis = 0L).forecast)
+        assertNull(widgetWeather(state.copy(report = report(tver)), airport, nowMillis = 0L).forecast)
+        assertNull(widgetWeather(state, airport, nowMillis = WEATHER_MAX_AGE_MS).forecast)
     }
 }
