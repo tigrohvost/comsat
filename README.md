@@ -49,6 +49,14 @@ older than three hours **STALE**, and show **OFFLINE** after a failed refresh.
 FFT analysis stops when the panel has no visible subscribers, and the map also
 stays still when Android animations are disabled.
 
+Version 1.7.2 receives Rain Radio the way its own web player does. While its music
+plays, COMSAT tells the station that somebody is listening, so Rain sees her
+audience, and plays her voice when she speaks on air: the music is lowered, the
+spoken line is shown in place of the track name, and the music returns afterwards.
+Track changes ask the station with one stable request per transition, so a lost
+answer or a pause does not skip a piece, and a file that has left the station's
+pool is replaced by a new selection instead of an endless retry.
+
 ## Get on air
 
 1. Download [`COMSAT.apk`](https://github.com/tigrohvost/comsat/releases/latest/download/COMSAT.apk).
@@ -144,8 +152,8 @@ Set the repository secrets `COMSAT_KEYSTORE_BASE64` and
 matching semantic tag:
 
 ```bash
-git tag -a v1.6.1 -m "COMSAT 1.6.1"
-git push origin v1.6.1
+git tag -a v1.7.2 -m "COMSAT 1.7.2"
+git push origin v1.7.2
 ```
 
 The release workflow rejects a tag that does not match the app version. A

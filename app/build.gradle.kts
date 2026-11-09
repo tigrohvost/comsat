@@ -30,8 +30,8 @@ android {
         applicationId = "com.comsat.audio"
         minSdk = 26
         targetSdk = 37
-        versionCode = 24
-        versionName = "1.7.1"
+        versionCode = 25
+        versionName = "1.7.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

@@ -64,8 +64,10 @@ import kotlinx.coroutines.launch
 import okhttp3.Call
 import okhttp3.CacheControl
 import okhttp3.Callback
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.json.JSONObject
 import java.io.IOException
@@ -122,6 +124,36 @@ class AudioService : Service() {
     private var somaCurrentTrackName: String? = null
     private var somaNextTrackCall: Call? = null
     private var somaPendingSelection: ChainedTrackSelection? = null
+
+    // Live link of a chained station (see StationLiveLink.kt): while its music plays,
+    // the station is told somebody listens and its host's voice clips are played over
+    // the ducked music. liveGeneration invalidates callbacks of a link that has ended.
+    private val liveSession = java.util.UUID.randomUUID().toString()
+    private val sayFeed = SayFeed()
+    private val voiceQueue = ArrayDeque<SayClip>()
+    private var liveBase: String? = null
+    private var liveToken: String? = null
+    private var liveGeneration = 0
+    private var liveHeartbeatCall: Call? = null
+    private var liveSayCall: Call? = null
+    private var voicePlayer: ExoPlayer? = null
+    // speaking: a line is in hand (loading or sounding). voiceSounding: it is audible;
+    // only then is the music lowered and the line shown.
+    private var speaking = false
+    private var voiceSounding = false
+    private var voiceGapUntil = 0L
+    private val liveHeartbeatToken = Any()
+    private val liveSayToken = Any()
+    private val voiceGapToken = Any()
+    private val voiceWatchToken = Any()
+
+    // What the ambient line shows: the host's spoken line while it sounds, else the music title.
+    private var somaMusicTitle: String? = null
+    private var spokenLine: String? = null
+
+    // A selection the station may already have answered survives a panel stop and start
+    // of the same station, as it survives a pause: the piece it chose is not skipped.
+    private var somaCarriedSelection: Pair<String, ChainedTrackSelection>? = null
 
     private var atcRetryAttempt = 0
     private var somaRetryAttempt = 0
@@ -332,6 +364,9 @@ class AudioService : Service() {
         widgetStateScope.launch {
             atcState.collect { updateActivityMonitoring() }
         }
+        widgetStateScope.launch {
+            somaState.collect { updateLiveLink() }
+        }
     }
 
     override fun onBind(intent: Intent): IBinder = binder
@@ -369,6 +404,8 @@ class AudioService : Service() {
         // Invalidate callbacks as well as cancelling the socket: an HTTP
         // response may already be on its way back to the main thread.
         clearChainedPlayback()
+        voicePlayer?.release()
+        voicePlayer = null
         abandonFocus()
         mediaSession.release()
         compositePlayer.release()
@@ -418,8 +455,13 @@ class AudioService : Service() {
     private fun applyVolumes() {
         val factor = (if (ducked) DUCK_FACTOR else 1f) * sleepGain
         atcPlayer.volume = baseAtcVolume * factor
-        somaPlayer.volume = baseSomaVolume * factor *
-            (if (atcDuckingEnabled && baseAtcVolume > 0f && _atcState.value.isActive) speechGain else 1f)
+        val underAtc =
+            if (atcDuckingEnabled && baseAtcVolume > 0f && _atcState.value.isActive) speechGain else 1f
+        somaPlayer.volume = baseSomaVolume * factor * underAtc *
+            (if (voiceSounding) VOICE_DUCK_FACTOR else 1f)
+        // The station host speaks on the ambient channel: at its level, and under a
+        // controller's transmission like the music.
+        voicePlayer?.volume = baseSomaVolume * factor * underAtc
     }
 
     // ─── Public controls ──────────────────────────────────────────────────────
@@ -464,7 +506,8 @@ class AudioService : Service() {
         somaRetryAttempt = 0
         handler.removeCallbacksAndMessages(somaReconnectToken)
         somaPlayer.stop()
-        _somaNowPlaying.value = null
+        somaCarriedSelection = null
+        showMusicTitle(null)
         _somaState.value = StreamState(StreamStatus.LOADING)
         somaPlayer.setMediaItem(MediaItem.fromUri(url))
         ensureForeground()
@@ -481,7 +524,10 @@ class AudioService : Service() {
     // via /next-track and keep chaining from the player's STATE_ENDED.
     fun playSomaChained(apiBase: String, label: String? = null) {
         focusResumePlan.cancelSoma()
+        val carried = somaCarriedSelection?.takeIf { it.first == apiBase.trimEnd('/') }?.second
+        somaCarriedSelection = null
         clearChainedPlayback()
+        somaPendingSelection = carried
         // Do not let the previously selected SomaFM stream continue underneath
         // while the first chained track is being resolved.
         somaPlayer.stop()
@@ -491,7 +537,7 @@ class AudioService : Service() {
         somaLabel = label
         somaRetryAttempt = 0
         handler.removeCallbacksAndMessages(somaReconnectToken)
-        _somaNowPlaying.value = null
+        showMusicTitle(null)
         _somaState.value = StreamState(StreamStatus.LOADING)
         ensureForeground()
         if (requestFocus()) fetchNextChainedTrack()
@@ -501,6 +547,9 @@ class AudioService : Service() {
 
     fun stopSoma(keepForRetune: Boolean = false) {
         focusResumePlan.cancelSoma()
+        somaCarriedSelection = somaNextTrackApiBase?.let { base ->
+            somaPendingSelection?.takeIf { it.requestId != null }?.let { base to it }
+        }
         clearChainedPlayback()
         somaUrl = null
         somaLabel = null
@@ -508,7 +557,7 @@ class AudioService : Service() {
         handler.removeCallbacksAndMessages(somaReconnectToken)
         somaPlayer.stop()
         somaSpectrumProcessor.reset()
-        _somaNowPlaying.value = null
+        showMusicTitle(null)
         _somaState.value = StreamState(StreamStatus.IDLE)
         if (!keepForRetune) maybeStopForeground()
         updateNotification()
@@ -520,7 +569,247 @@ class AudioService : Service() {
         somaPendingSelection = null
         somaNextTrackCall?.cancel()
         somaNextTrackCall = null
+        // A retune may keep the same stream status, which the state collector cannot see.
+        updateLiveLink()
     }
+
+    // ─── Chained station live link: presence and the host's voice ─────────────
+
+    /** The link lives while the chained station's music plays, across its track changes. */
+    private fun updateLiveLink() {
+        val base = somaNextTrackApiBase
+        val status = _somaState.value.status
+        val wanted = base.takeIf {
+            status == StreamStatus.PLAYING || status == StreamStatus.BUFFERING ||
+                (status == StreamStatus.LOADING && liveBase == base)
+        }
+        if (wanted == liveBase) return
+        stopLiveLink()
+        if (wanted != null && !destroyed) {
+            liveBase = wanted
+            liveHeartbeat()
+            pollSay()
+        }
+    }
+
+    private fun stopLiveLink() {
+        if (liveBase == null && !speaking) return
+        liveBase = null
+        liveGeneration++
+        handler.removeCallbacksAndMessages(liveHeartbeatToken)
+        handler.removeCallbacksAndMessages(liveSayToken)
+        handler.removeCallbacksAndMessages(voiceGapToken)
+        handler.removeCallbacksAndMessages(voiceWatchToken)
+        // A request still on its way must neither prolong the presence nor hold the service.
+        liveHeartbeatCall?.cancel()
+        liveHeartbeatCall = null
+        liveSayCall?.cancel()
+        liveSayCall = null
+        // Start live again next time: lines spoken while nobody listened are not replayed.
+        sayFeed.reset()
+        voiceQueue.clear()
+        if (speaking) {
+            speaking = false
+            voiceSounding = false
+            voicePlayer?.stop()
+            spokenLine = null
+            publishNowPlaying()
+            applyVolumes()
+        }
+    }
+
+    private fun showMusicTitle(title: String?) {
+        somaMusicTitle = title
+        publishNowPlaying()
+    }
+
+    private fun publishNowPlaying() {
+        _somaNowPlaying.value = spokenLine?.takeIf { voiceSounding } ?: somaMusicTitle
+    }
+
+    /** Presence: the station's token comes as a cookie with its page and goes back in a header. */
+    private fun liveHeartbeat() {
+        val base = liveBase ?: return
+        val generation = liveGeneration
+        val token = liveToken
+        val request = if (token == null) {
+            Request.Builder().url("$base/").cacheControl(CacheControl.FORCE_NETWORK).build()
+        } else {
+            Request.Builder()
+                .url(stationUrl(base, "/listener-ping").toHttpUrl().newBuilder()
+                    .addQueryParameter("id", liveSession).build())
+                .post(ByteArray(0).toRequestBody(null))
+                .header("Cookie", "${ListenerToken.COOKIE}=$token")
+                .header(ListenerToken.HEADER, token)
+                .build()
+        }
+        val call = okHttpClient.newCall(request)
+        liveHeartbeatCall = call
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                handler.post {
+                    if (liveHeartbeatCall === call) liveHeartbeatCall = null
+                    scheduleLive(generation, liveHeartbeatToken, HEARTBEAT_MS, ::liveHeartbeat)
+                }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                val status = response.code
+                val cookies = response.headers("Set-Cookie")
+                response.close()
+                handler.post {
+                    if (liveHeartbeatCall === call) liveHeartbeatCall = null
+                    if (generation != liveGeneration) return@post
+                    if (token == null) {
+                        liveToken = ListenerToken.fromSetCookie(cookies)
+                        // Announce the listener at once instead of a period later.
+                        if (liveToken != null) return@post liveHeartbeat()
+                    } else if (status == 401 || status == 403) {
+                        liveToken = null
+                    }
+                    scheduleLive(generation, liveHeartbeatToken, HEARTBEAT_MS, ::liveHeartbeat)
+                }
+            }
+        })
+    }
+
+    /** The host's voice: a feed of short clips, started live and polled while the music plays. */
+    private fun pollSay() {
+        val base = liveBase ?: return
+        val generation = liveGeneration
+        val request = Request.Builder().url(stationUrl(base, sayFeed.path()))
+            .cacheControl(CacheControl.FORCE_NETWORK).build()
+        val call = okHttpClient.newCall(request)
+        liveSayCall = call
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                handler.post {
+                    if (liveSayCall === call) liveSayCall = null
+                    scheduleLive(generation, liveSayToken, SAY_POLL_MS, ::pollSay)
+                }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                val json = response.use { resp ->
+                    if (!resp.isSuccessful) null
+                    else runCatching { JSONObject(resp.body.string()) }.getOrNull()
+                }
+                handler.post {
+                    if (liveSayCall === call) liveSayCall = null
+                    if (generation != liveGeneration) return@post
+                    if (json != null && !sayFeed.ready) {
+                        // Only a real counter marks "now"; an answer without one would
+                        // start at zero and replay the station's stored lines.
+                        (json.opt("latest") as? Number)?.toLong()?.takeIf { it >= 0 }
+                            ?.let(sayFeed::startLive)
+                    } else if (json != null) {
+                        val array = json.optJSONArray("clips")
+                        val clips = (0 until (array?.length() ?: 0))
+                            .mapNotNull { array?.optJSONObject(it) }
+                            .map { SayClip(it.optLong("seq"), it.optString("url"), it.optString("text")) }
+                        voiceQueue.addAll(sayFeed.accept(clips))
+                        playNextVoice()
+                    }
+                    scheduleLive(generation, liveSayToken, SAY_POLL_MS, ::pollSay)
+                }
+            }
+        })
+    }
+
+    private fun scheduleLive(generation: Int, token: Any, delayMs: Long, action: () -> Unit) {
+        if (generation != liveGeneration || liveBase == null) return
+        handler.removeCallbacksAndMessages(token)
+        HandlerCompat.postDelayed(handler, {
+            if (generation == liveGeneration) action()
+        }, token, delayMs)
+    }
+
+    private fun playNextVoice() {
+        // One line at a time, with a breath between two lines.
+        if (speaking || SystemClock.elapsedRealtime() < voiceGapUntil) return
+        val base = liveBase ?: return
+        val clip = voiceQueue.removeFirstOrNull() ?: return
+        val url = resolveChainedTrackUrl(base, clip.url) ?: return playNextVoice()
+        val player = voicePlayer ?: buildVoicePlayer().also { voicePlayer = it }
+        speaking = true
+        // Shown and ducked for only once the voice is audible (voiceSoundingChanged).
+        spokenLine = clip.text.trim().takeIf { it.isNotEmpty() }?.let { text ->
+            (somaLabel?.substringBefore(' ')?.uppercase() ?: "HOST") + ": " + text.take(160)
+        }
+        player.setMediaItem(MediaItem.fromUri(url))
+        player.prepare()
+        player.play()
+        watchSilentVoice()
+    }
+
+    /** A clip that does not arrive, or stalls, must not hold the queue: give it up after a while. */
+    private fun watchSilentVoice() {
+        val generation = liveGeneration
+        handler.removeCallbacksAndMessages(voiceWatchToken)
+        HandlerCompat.postDelayed(handler, {
+            if (generation == liveGeneration && speaking && !voiceSounding) {
+                voicePlayer?.stop()
+                voiceFinished()
+            }
+        }, voiceWatchToken, VOICE_SILENCE_LIMIT_MS)
+    }
+
+    private fun voiceSoundingChanged(sounding: Boolean) {
+        if (!speaking || voiceSounding == sounding) return
+        voiceSounding = sounding
+        // The limit counts silence only: a line that is sounding plays to its end.
+        if (sounding) handler.removeCallbacksAndMessages(voiceWatchToken) else watchSilentVoice()
+        publishNowPlaying()
+        applyVolumes()
+        updateNotification()
+    }
+
+    private fun voiceFinished() {
+        if (!speaking) return
+        speaking = false
+        voiceSounding = false
+        spokenLine = null
+        handler.removeCallbacksAndMessages(voiceWatchToken)
+        publishNowPlaying()
+        applyVolumes()
+        updateNotification()
+        val generation = liveGeneration
+        voiceGapUntil = SystemClock.elapsedRealtime() + VOICE_GAP_MS
+        // Its own token: a feed answer rescheduling the poll must not cancel the next line.
+        HandlerCompat.postDelayed(handler, {
+            if (generation == liveGeneration) playNextVoice()
+        }, voiceGapToken, VOICE_GAP_MS)
+    }
+
+    private fun buildVoicePlayer(): ExoPlayer {
+        val player = ExoPlayer.Builder(this)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(OkHttpDataSource.Factory(okHttpClient)))
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
+                    .build(),
+                /* handleAudioFocus = */ false
+            )
+            .build()
+        player.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_ENDED) voiceFinished()
+            }
+
+            override fun onIsPlayingChanged(isPlaying: Boolean) = voiceSoundingChanged(isPlaying)
+
+            override fun onPlayerError(error: PlaybackException) = voiceFinished()
+        })
+        return player
+    }
+
+    // Same cleanup the station's own web player applies to file names
+    private fun chainedTrackTitle(name: String): String? = name
+        .removeSuffix(".mp3")
+        .replace(Regex("[-_]+"), " ")
+        .trim()
+        .ifBlank { null }
 
     private fun fetchNextChainedTrack() {
         val apiBase = somaNextTrackApiBase ?: return
@@ -595,12 +884,8 @@ class AudioService : Service() {
     private fun playChainedTrack(url: String, name: String) {
         somaUrl = url
         somaCurrentTrackName = name
-        // Same cleanup the station's own web player applies to file names
-        _somaNowPlaying.value = name
-            .removeSuffix(".mp3")
-            .replace(Regex("[-_]+"), " ")
-            .trim()
-            .ifBlank { null }
+        // The host may be speaking across the track change; the spoken line stays shown.
+        showMusicTitle(chainedTrackTitle(name))
         _somaState.value = StreamState(StreamStatus.LOADING)
         somaPlayer.setMediaItem(MediaItem.fromUri(url))
         somaPlayer.prepare()
@@ -796,7 +1081,7 @@ class AudioService : Service() {
                     // Chained tracks rarely carry tags; keep the /next-track
                     // name rather than clearing it with a null ID3 title.
                     if (somaNextTrackApiBase == null || title != null) {
-                        _somaNowPlaying.value = title
+                        showMusicTitle(title)
                     }
                     updateNotification()
                 }
@@ -1035,6 +1320,15 @@ class AudioService : Service() {
         const val ACTION_STOP_ALL = "com.comsat.audio.action.STOP_ALL"
 
         private const val DUCK_FACTOR = 0.3f
+
+        // Chained station live link
+        private const val VOICE_DUCK_FACTOR = 0.35f
+        private const val HEARTBEAT_MS = 5_000L
+        // The station's web page asks every 1.4 s; a phone asks less often and hears
+        // a line at most two seconds later.
+        private const val SAY_POLL_MS = 2_000L
+        private const val VOICE_GAP_MS = 180L
+        private const val VOICE_SILENCE_LIMIT_MS = 30_000L
 
         private val PAUSABLE_STATUSES = setOf(
             StreamStatus.PLAYING,
