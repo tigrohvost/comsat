@@ -1,20 +1,15 @@
 package com.comsat.audio
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.graphics.Color
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
 import com.comsat.audio.data.repository.SettingsRepository
@@ -33,20 +28,18 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var settingsRepo: SettingsRepository
     @Inject lateinit var widgetUpdater: WidgetUpdater
 
-    private val notificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* optional */ }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Keep Android's contrast protection for three-button navigation.
         enableEdgeToEdge()
-        requestNotificationPermissionIfNeeded()
+        // Playback uses permission-exempt MediaSession notifications. Opening or
+        // recreating the panel must not launch a notification permission activity.
         setContent {
             val themeModeFlow = remember(settingsRepo) {
                 settingsRepo.settings.map { it.themeMode }
             }
             val themeMode by themeModeFlow
-                .collectAsState(initial = ThemeMode.NORDIC)
+                .collectAsStateWithLifecycle(initialValue = ThemeMode.NORDIC)
             LaunchedEffect(themeMode) {
                 // Both icon sets and the three-button navigation scrim follow
                 // the app theme, which can differ from Android's system theme.
@@ -75,13 +68,4 @@ class MainActivity : ComponentActivity() {
         widgetUpdater.requestWeather(foreground = true)
     }
 
-    // Android 13+: the foreground-service notification is invisible without this
-    private fun requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }
 }

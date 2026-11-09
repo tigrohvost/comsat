@@ -7,7 +7,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 
-enum class ThemeMode { DARK, LIGHT, NORDIC }
+// Append new modes: SettingsRepository persists their ordinals.
+enum class ThemeMode { DARK, LIGHT, NORDIC, ORANGE }
 
 private val DarkColors = darkColorScheme(
     primary          = CyanNeon,
@@ -62,6 +63,45 @@ private val NordColors = darkColorScheme(
     scrim            = Scrim
 )
 
+private val OrangeColors = darkColorScheme(
+    primary          = OrangePrimary,
+    onPrimary        = OrangeBg,
+    primaryContainer = OrangeSurfVar,
+    onPrimaryContainer = OrangeText,
+    secondary        = OrangeSecondary,
+    onSecondary      = OrangeBg,
+    secondaryContainer = OrangeSurfVar,
+    onSecondaryContainer = OrangeText,
+    tertiary         = OrangeTertiary,
+    onTertiary       = OrangeBg,
+    tertiaryContainer = OrangeSurfVar,
+    onTertiaryContainer = OrangeText,
+    background       = OrangeBg,
+    onBackground     = OrangeText,
+    surface          = OrangeSurface,
+    onSurface        = OrangeText,
+    surfaceVariant   = OrangeSurfVar,
+    onSurfaceVariant = OrangeTextSec,
+    surfaceTint      = OrangePrimary,
+    surfaceDim       = OrangeBg,
+    surfaceBright    = OrangeSurfVar,
+    surfaceContainerLowest = OrangeBg,
+    surfaceContainerLow = OrangeSurface,
+    surfaceContainer = OrangeSurface,
+    surfaceContainerHigh = OrangeSurfVar,
+    surfaceContainerHighest = OrangeSurfVar,
+    inverseSurface   = OrangeText,
+    inverseOnSurface = OrangeBg,
+    inversePrimary   = OrangeOutline,
+    outline          = OrangeOutline,
+    outlineVariant   = OrangeOutline,
+    error            = OrangeError,
+    onError          = OrangeBg,
+    errorContainer   = OrangeSurfVar,
+    onErrorContainer = OrangeError,
+    scrim            = Scrim
+)
+
 val LocalThemeMode = staticCompositionLocalOf { ThemeMode.DARK }
 val LocalSetTheme  = staticCompositionLocalOf<(ThemeMode) -> Unit> { {} }
 val LocalWarningColor = staticCompositionLocalOf { NordYellow }
@@ -75,13 +115,18 @@ fun ComsatTheme(
     CompositionLocalProvider(
         LocalThemeMode provides mode,
         LocalSetTheme  provides onSetTheme,
-        LocalWarningColor provides if (mode == ThemeMode.LIGHT) WarningDay else NordYellow
+        LocalWarningColor provides when (mode) {
+            ThemeMode.LIGHT -> WarningDay
+            ThemeMode.ORANGE -> OrangeWarning
+            else -> NordYellow
+        }
     ) {
         MaterialTheme(
             colorScheme = when (mode) {
                 ThemeMode.DARK   -> DarkColors
                 ThemeMode.LIGHT  -> LightColors
                 ThemeMode.NORDIC -> NordColors
+                ThemeMode.ORANGE -> OrangeColors
             },
             typography = ComsatTypography,
             content = content

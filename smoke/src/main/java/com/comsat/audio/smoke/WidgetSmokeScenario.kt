@@ -16,6 +16,7 @@ import android.widget.TextView
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.BySelector
+import androidx.test.uiautomator.StaleObjectException
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
@@ -66,36 +67,36 @@ internal class WidgetSmokeScenario(
             verifyLayout()
             screenshot("widget-compact")
             val nordicTextColor = widgetTextColor()
-            for (theme in listOf("LIGHT", "DARK", "NORDIC")) {
+            for (theme in listOf("LIGHT", "DARK", "ORANGE", "NORDIC")) {
                 verifyTheme(theme)
             }
             assertEquals("Nordic widget palette was not restored", nordicTextColor, widgetTextColor())
             showHost()
 
             // Tapping the actual RemoteViews PendingIntent must open the real app.
-            visible(widget("widget_panel")).click()
+            click(widget("widget_panel"))
             visible(By.text("COMSAT"))
-            visible(By.desc("Change airport")).click()
+            click(By.desc("Change airport"))
             visible(By.pkg(TARGET_PACKAGE).clazz("android.widget.EditText")).apply {
                 click()
                 text = "KLAX"
             }
             device.pressKeyCode(KeyEvent.KEYCODE_ENTER)
-            visible(By.textContains("Los Angeles Intl")).click()
-            visible(By.desc("Pause ATC")).click()
+            click(By.textContains("Los Angeles Intl"))
+            click(By.desc("Pause ATC"))
             visible(By.desc("Play ATC"))
             showHost()
             verifySources("KLAX")
             verifyStopped()
 
             openApp()
-            visible(By.desc("Play ambient")).click()
+            click(By.desc("Play ambient"))
             visible(By.textContains("STREAM OFFLINE"))
             showHost()
             visible(widget("widget_station_status").text(Pattern.compile("RECONNECTING|OFFLINE")))
             screenshot("widget-reconnecting")
             openApp()
-            visible(By.desc("Pause ambient")).click()
+            click(By.desc("Pause ambient"))
             visible(By.desc("Play ambient"))
             showHost()
             verifyStopped()
@@ -200,14 +201,12 @@ internal class WidgetSmokeScenario(
         for ((small, id) in smallWidgets.zip(smallIds)) {
             widgetId = id
             val size = small.size
-            for (theme in listOf("LIGHT", "DARK", "NORDIC")) {
+            for (theme in listOf("LIGHT", "DARK", "ORANGE", "NORDIC")) {
                 showHost(small.minimumWidth, small.minimumHeight)
                 verifySources("KLAX")
                 val previousColor = widgetTextColor()
                 openApp()
-                visible(By.descStartsWith("Select theme:")).click()
-                visible(By.text(theme)).click()
-                visible(By.desc("Select theme: $theme"))
+                selectTheme(theme)
                 showHost(small.minimumWidth, small.minimumHeight)
                 verifySources("KLAX")
                 val deadline = SystemClock.uptimeMillis() + 5_000
@@ -227,7 +226,7 @@ internal class WidgetSmokeScenario(
             screenshot("widget-$size")
             if (small.weather) verifyWeatherLocation(small)
             // A click must still launch the app in the small layouts.
-            visible(widget(if (small.weather) "widget_mix" else "widget_panel")).click()
+            click(widget(if (small.weather) "widget_mix" else "widget_panel"))
             visible(By.text("COMSAT"))
             allocator.deleteAppWidgetId(id)
             allocatedIds.remove(id)
@@ -241,7 +240,7 @@ internal class WidgetSmokeScenario(
         // Bound without its configuration screen, the readout asks for a location.
         visible(widget("widget_weather_temp").text("--°"))
         visible(widget("widget_weather_place").text("Set location"))
-        visible(widget("widget_weather")).click()
+        click(widget("widget_weather"))
         visible(By.text("WEATHER LOCATION"))
         visible(By.pkg(TARGET_PACKAGE).clazz("android.widget.EditText")).apply {
             click()
@@ -250,7 +249,7 @@ internal class WidgetSmokeScenario(
         // A failed lookup must not read as "no such city".
         visible(By.text("SEARCH UNAVAILABLE"))
         screenshot("weather-location-offline")
-        visible(By.text("Selected airport")).click()
+        click(By.text("Selected airport"))
         assertTrue("Location screen did not close", device.wait(Until.gone(By.text("WEATHER LOCATION")), 5_000))
         showHost(small.comfortableWidth, small.comfortableHeight)
         visible(widget("widget_weather_place").text("Los Angeles"))
@@ -287,11 +286,8 @@ internal class WidgetSmokeScenario(
 
     private fun verifyTheme(name: String) {
         val previousColor = widgetTextColor()
-        visible(widget("widget_panel")).click()
-        visible(By.descStartsWith("Select theme:")).click()
-        visible(By.text(name)).click()
-        visible(By.desc("Select theme: $name"))
-        assertTrue("Theme menu did not close", device.wait(Until.gone(By.text(name)), 5_000))
+        click(widget("widget_panel"))
+        selectTheme(name)
         showHost(width = 320, height = 200)
         verifySources("KJFK")
         val deadline = SystemClock.uptimeMillis() + 5_000
@@ -352,6 +348,36 @@ internal class WidgetSmokeScenario(
     }
 
     private fun widget(name: String) = By.res(TARGET_PACKAGE, name)
+
+    private fun click(selector: BySelector) {
+        SystemClock.sleep(750)
+        repeat(4) {
+            try {
+                visible(selector).click()
+                return
+            } catch (_: StaleObjectException) {
+                SystemClock.sleep(100)
+            }
+        }
+        visible(selector).click()
+    }
+
+    private fun selectTheme(name: String) {
+        // A widget PendingIntent can expose the panel before its activity
+        // transition accepts touches. Reacquire nodes and wait for the menu.
+        repeat(4) {
+            if (device.hasObject(By.text(name))) return@repeat
+            try {
+                click(By.descStartsWith("Select theme:"))
+            } catch (_: StaleObjectException) {
+                SystemClock.sleep(100)
+            }
+            device.wait(Until.hasObject(By.text(name)), 2_000)
+        }
+        click(By.text(name))
+        visible(By.desc("Select theme: $name"))
+        assertTrue("Theme menu did not close", device.wait(Until.gone(By.text(name)), 5_000))
+    }
 
     private fun visible(selector: BySelector): UiObject2 =
         requireNotNull(device.wait(Until.findObject(selector), 20_000)) { "Missing widget UI: $selector" }

@@ -30,8 +30,8 @@ android {
         applicationId = "com.comsat.audio"
         minSdk = 26
         targetSdk = 37
-        versionCode = 22
-        versionName = "1.6.1"
+        versionCode = 24
+        versionName = "1.7.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -81,6 +81,7 @@ android {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))

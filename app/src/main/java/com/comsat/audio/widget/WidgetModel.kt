@@ -144,16 +144,17 @@ fun widgetModel(
 ): WidgetModel {
     val airportIcao = settings.airportIcao?.takeIf { it.isNotBlank() }
     val stationId = settings.stationId?.takeIf { it.isNotBlank() }
+    val snapshot = settings.stationSnapshot?.takeIf { it.id == stationId }
     val rainStation = stationId == "rain-radio"
     return WidgetModel(
         airportIcao = airportIcao,
         airportName = airport?.takeIf { it.icao == airportIcao }?.name,
         stationTitle = stationId?.let {
-            settings.stationTitle?.takeIf(String::isNotBlank)
+            snapshot?.title ?: settings.stationTitle?.takeIf(String::isNotBlank)
                 ?: if (rainStation) "Rain Radio" else it
         },
         stationNetwork = stationId?.let {
-            settings.stationNetwork?.takeIf(String::isNotBlank)
+            snapshot?.network ?: settings.stationNetwork?.takeIf(String::isNotBlank)
                 ?: if (rainStation) "RAIN NET" else "SOMAFM"
         },
         atcStatus = when {

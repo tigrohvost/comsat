@@ -13,6 +13,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.comsat.audio.data.model.Airport
 import com.comsat.audio.data.model.AtisData
+import com.comsat.audio.data.model.SavedMix
+import com.comsat.audio.data.repository.AppSettings
+import com.comsat.audio.data.repository.restoredStation
 import com.comsat.audio.data.model.SomaStation
 import com.comsat.audio.data.model.StreamState
 import com.comsat.audio.data.model.StreamStatus
@@ -35,12 +38,16 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val airportCatalog: AirportCatalog,
@@ -52,7 +59,13 @@ class MainViewModel @Inject constructor(
     private val playbackSnapshotRepository: PlaybackSnapshotRepository
 ) : AndroidViewModel(application) {
 
-    private var audioService: AudioService? = null
+    private val serviceFlow = MutableStateFlow<AudioService?>(null)
+    private var audioService: AudioService?
+        get() = serviceFlow.value
+        set(value) { serviceFlow.value = value }
+    val settings = settingsRepo.settings.stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())
+    val sleepRemaining = serviceFlow.flatMapLatest { it?.sleepRemaining ?: flowOf(null) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     private var serviceBound = false
     private val collectJobs = mutableListOf<Job>()
 
@@ -74,12 +87,11 @@ class MainViewModel @Inject constructor(
     private val _somaNowPlaying = MutableStateFlow<String?>(null)
     val somaNowPlaying: StateFlow<String?> = _somaNowPlaying
 
-    // Live FFT bands per stream, forwarded from the service
-    private val _atcSpectrum = MutableStateFlow(FloatArray(0))
-    val atcSpectrum: StateFlow<FloatArray> = _atcSpectrum
-
-    private val _somaSpectrum = MutableStateFlow(FloatArray(0))
-    val somaSpectrum: StateFlow<FloatArray> = _somaSpectrum
+    // Stop collecting upstream FFT when the visible panel has no subscribers.
+    val atcSpectrum = serviceFlow.flatMapLatest { it?.atcSpectrum ?: flowOf(FloatArray(0)) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FloatArray(0))
+    val somaSpectrum = serviceFlow.flatMapLatest { it?.somaSpectrum ?: flowOf(FloatArray(0)) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FloatArray(0))
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
@@ -91,8 +103,16 @@ class MainViewModel @Inject constructor(
             collectJobs += viewModelScope.launch { svc.atcState.collect { _atcState.value = it } }
             collectJobs += viewModelScope.launch { svc.somaState.collect { _somaState.value = it } }
             collectJobs += viewModelScope.launch { svc.somaNowPlaying.collect { _somaNowPlaying.value = it } }
-            collectJobs += viewModelScope.launch { svc.atcSpectrum.collect { _atcSpectrum.value = it } }
-            collectJobs += viewModelScope.launch { svc.somaSpectrum.collect { _somaSpectrum.value = it } }
+            collectJobs += viewModelScope.launch {
+                svc.stopGeneration.drop(1).collect {
+                    ++atcSelectionGeneration
+                    selectJob?.cancel()
+                    pendingAtc = null
+                    pendingSomaStation = null
+                    setAtcTuning(false)
+                    playbackSnapshotRepository.setSomaPreparing(false)
+                }
+            }
 
             svc.setAtcVolume(_atcVolume.value)
             svc.setSomaVolume(_somaVolume.value)
@@ -107,6 +127,8 @@ class MainViewModel @Inject constructor(
 
         override fun onServiceDisconnected(name: ComponentName) {
             audioService = null
+            collectJobs.forEach { it.cancel() }
+            collectJobs.clear()
         }
     }
 
@@ -127,6 +149,10 @@ class MainViewModel @Inject constructor(
 
     private val _atisData = MutableStateFlow<AtisData?>(null)
     val atisData: StateFlow<AtisData?> = _atisData
+    private val _atisLastSuccess = MutableStateFlow<Long?>(null)
+    val atisLastSuccess: StateFlow<Long?> = _atisLastSuccess
+    private val _atisRequestFailed = MutableStateFlow(false)
+    val atisRequestFailed: StateFlow<Boolean> = _atisRequestFailed
 
     // ─── Network status (footer telemetry) ────────────────────────────────────
 
@@ -146,6 +172,9 @@ class MainViewModel @Inject constructor(
             _networkOnline.value = networkCapabilities.hasCapability(
                 NetworkCapabilities.NET_CAPABILITY_VALIDATED
             )
+            if (_networkOnline.value) viewModelScope.launch {
+                if (_stationsError.value != null) loadStations()
+            }
         }
 
         override fun onLost(network: Network) = updateNetworkStatus()
@@ -175,7 +204,7 @@ class MainViewModel @Inject constructor(
 
     // ─── Init ─────────────────────────────────────────────────────────────────
 
-    private var restoredStationId: String? = null
+    private var restoredSettings: AppSettings? = null
     private var persistVolumesJob: Job? = null
     private var stationsJob: Job? = null
 
@@ -201,18 +230,19 @@ class MainViewModel @Inject constructor(
                     _selectedAirport.value = _airports.value.find { it.icao == icao }
                 }
             }
-            restoredStationId = s.stationId
+            restoredSettings = s
             applyRestoredStation()
         }
     }
 
     private fun applyRestoredStation() {
-        val id = restoredStationId ?: return
-        if (_selectedStation.value != null) return
-        _stations.value.find { it.id == id }?.let {
-            _selectedStation.value = it
-            restoredStationId = null
-            viewModelScope.launch { settingsRepo.setStation(it.id, it.title, it.network) }
+        val current = _selectedStation.value
+        val restored = current?.let { selection -> _stations.value.find { it.id == selection.id } }
+            ?: current ?: restoredSettings?.let { restoredStation(it, _stations.value) }
+        if (restored != null) {
+            _selectedStation.value = restored
+            if (_stations.value.none { it.id == restored.id }) _stations.value += restored
+            viewModelScope.launch { settingsRepo.setStation(restored) }
         }
     }
 
@@ -305,9 +335,16 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             _selectedAirport.map { it?.icao }.distinctUntilChanged().collectLatest { icao ->
                 _atisData.value = null
+                _atisLastSuccess.value = null
+                _atisRequestFailed.value = false
                 if (icao == null) return@collectLatest
                 while (true) {
-                    metarRepo.fetchMetar(icao)?.let { _atisData.value = it }
+                    val data = metarRepo.fetchMetar(icao)
+                    _atisRequestFailed.value = data == null
+                    if (data != null) {
+                        _atisData.value = data
+                        _atisLastSuccess.value = System.currentTimeMillis()
+                    }
                     delay(10 * 60 * 1000L)
                 }
             }
@@ -344,7 +381,7 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch { settingsRepo.setAirport(airport.icao) }
         selectJob?.cancel()
         pendingAtc = null
-        audioService?.stopAtc()
+        audioService?.stopAtc(keepForRetune = true)
         val generation = ++atcSelectionGeneration
         setAtcTuning(true)
         selectJob = viewModelScope.launch {
@@ -395,8 +432,9 @@ class MainViewModel @Inject constructor(
     }
 
     fun selectStation(station: SomaStation) {
+        restoredSettings = null
         _selectedStation.value = station
-        viewModelScope.launch { settingsRepo.setStation(station.id, station.title, station.network) }
+        viewModelScope.launch { settingsRepo.setStation(station) }
         val ctx = getApplication<Application>()
         ctx.startService(Intent(ctx, AudioService::class.java))
         val svc = audioService
@@ -445,6 +483,59 @@ class MainViewModel @Inject constructor(
             settingsRepo.setVolumes(_atcVolume.value, _somaVolume.value)
         }
     }
+
+    fun toggleFavoriteAirport(icao: String) {
+        viewModelScope.launch { settingsRepo.toggleFavorite(icao, airport = true) }
+    }
+
+    fun toggleFavoriteStation(id: String) {
+        viewModelScope.launch { settingsRepo.toggleFavorite(id, airport = false) }
+    }
+
+    fun saveMix(name: String) {
+        if (name.isBlank() || (_selectedAirport.value == null && _selectedStation.value == null)) return
+        val mix = SavedMix(name = name.trim().take(80), airportIcao = _selectedAirport.value?.icao,
+            station = _selectedStation.value, atcVolume = _atcVolume.value, somaVolume = _somaVolume.value)
+        viewModelScope.launch { settingsRepo.saveMix(mix) }
+    }
+
+    fun deleteMix(id: String) { viewModelScope.launch { settingsRepo.deleteMix(id) } }
+
+    fun playMix(mix: SavedMix) {
+        restoredSettings = null
+        setAtcVolume(mix.atcVolume)
+        setSomaVolume(mix.somaVolume)
+        if (mix.station == null) {
+            pendingSomaStation = null
+            _selectedStation.value = null
+            playbackSnapshotRepository.setSomaPreparing(false)
+            audioService?.stopSoma(keepForRetune = mix.airportIcao != null)
+            viewModelScope.launch { settingsRepo.clearStation() }
+        }
+        if (mix.airportIcao == null) {
+            ++atcSelectionGeneration
+            selectJob?.cancel()
+            pendingAtc = null
+            setAtcTuning(false)
+            _selectedAirport.value = null
+            audioService?.stopAtc(keepForRetune = mix.station != null)
+            viewModelScope.launch { settingsRepo.clearAirport() }
+        }
+        mix.station?.let { snapshot ->
+            selectStation(_stations.value.find { it.id == snapshot.id } ?: snapshot)
+        }
+        mix.airportIcao?.let { icao -> _airports.value.find { it.icao == icao }?.let(::selectAirport) }
+    }
+
+    fun setSleepTimer(minutes: Int) {
+        if (minutes in 1..1440) audioService?.setSleepTimer(minutes * 60_000L)
+    }
+    fun cancelSleepTimer() { audioService?.cancelSleepTimer() }
+    fun retryAtc() { audioService?.retryNow(true) }
+    fun retrySoma() { audioService?.retryNow(false) }
+    fun setAtcDucking(enabled: Boolean) { viewModelScope.launch { settingsRepo.setAtcDucking(enabled) } }
+    fun setDuckingDepth(depth: Float) { viewModelScope.launch { settingsRepo.setDuckingDepth(depth) } }
+    fun setMapMotion(enabled: Boolean) { viewModelScope.launch { settingsRepo.setMapMotion(enabled) } }
 
     override fun onCleared() {
         playbackSnapshotRepository.setAtcPreparing(false)

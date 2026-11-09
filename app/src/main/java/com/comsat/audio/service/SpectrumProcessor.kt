@@ -21,7 +21,7 @@ import kotlin.math.sqrt
  * bands normalized 0..1, at most every [EMIT_INTERVAL_MS] (~30 Hz).
  */
 @UnstableApi
-class SpectrumProcessor : TeeAudioProcessor.AudioBufferSink {
+class SpectrumProcessor(private val measureLevel: Boolean = false) : TeeAudioProcessor.AudioBufferSink {
 
     companion object {
         const val BANDS = SpectrumAnalysis.BANDS
@@ -31,6 +31,12 @@ class SpectrumProcessor : TeeAudioProcessor.AudioBufferSink {
 
     private val _bands = MutableStateFlow(ZERO)
     val bands: StateFlow<FloatArray> = _bands
+
+    @Volatile private var rmsLevel = 0f
+    @Volatile private var levelTimeMillis = 0L
+    private var levelSum = 0.0
+    private var levelSamples = 0
+    fun levelAt(nowMillis: Long): Float = if (nowMillis - levelTimeMillis <= 350) rmsLevel else 0f
 
     private var sampleRate = 44_100
     private var channelCount = 2
@@ -42,6 +48,7 @@ class SpectrumProcessor : TeeAudioProcessor.AudioBufferSink {
     private var lastEmitAt = 0L
 
     fun reset() {
+        rmsLevel = 0f
         _bands.value = ZERO
     }
 
@@ -50,22 +57,43 @@ class SpectrumProcessor : TeeAudioProcessor.AudioBufferSink {
         this.sampleRate = sampleRateHz
         this.channelCount = channelCount
         windowPos = 0
+        levelSum = 0.0
+        levelSamples = 0
+        rmsLevel = 0f
         window.fill(0f)
         _bands.value = ZERO
     }
 
     override fun handleBuffer(buffer: ByteBuffer) {
+        val spectrumNeeded = _bands.subscriptionCount.value > 0
+        if (!spectrumNeeded && !measureLevel) return
+        val now = android.os.SystemClock.elapsedRealtime()
         val buf = buffer.asShortBuffer()
         val frames = buf.remaining() / channelCount
         for (f in 0 until frames) {
             var acc = 0
             for (c in 0 until channelCount) acc += buf.get(f * channelCount + c).toInt()
-            window[windowPos] = acc / (channelCount * 32768f)
-            windowPos = (windowPos + 1) % window.size
+            val sample = acc / (channelCount * 32768f)
+            if (measureLevel) {
+                levelSum += sample.toDouble() * sample
+                levelSamples++
+                if (levelSamples >= sampleRate / 10) {
+                    rmsLevel = sqrt(levelSum / levelSamples).toFloat()
+                    levelTimeMillis = now
+                    levelSum = 0.0
+                    levelSamples = 0
+                }
+            }
+            if (spectrumNeeded) {
+                window[windowPos] = sample
+                windowPos = (windowPos + 1) % window.size
+            }
+        }
+        if (!spectrumNeeded) {
+            samplesSinceEmit = 0
+            return
         }
         samplesSinceEmit += frames
-
-        val now = android.os.SystemClock.elapsedRealtime()
         if (samplesSinceEmit >= window.size / 2 && now - lastEmitAt >= EMIT_INTERVAL_MS) {
             samplesSinceEmit = 0
             lastEmitAt = now

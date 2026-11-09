@@ -29,10 +29,30 @@ screen and headset controls drive both ExoPlayer instances through one
 MediaSession; reconnect backoff, audio focus, ducking and unplug protection are
 built in.
 
+Version 1.7.0 adds favorites (the stars in both selectors) and named mixes.
+Open the theme menu in the panel header and choose **SAVED MIXES** to save the
+current sources and volumes, or tap a saved mix to start it. The complete selected
+station is saved locally, so it can be restored and played while the SomaFM
+directory is unavailable.
+
+**SETTINGS / SLEEP** in the same menu offers a 15/30/60-minute or custom sleep
+timer (1–1440 minutes), cancellation, optional music reduction during ATC
+(25/50/75%, initially off), and a static background map. The timer runs in the
+audio service, fades both channels over its final 30 seconds, then stops them
+and removes the media notification. Its countdown also updates when ordinary
+notifications are disabled. Manual stop of both channels cancels it;
+focus loss and unplugging headphones preserve the deadline. During reconnection,
+the error line shows the retry countdown; tap it to retry immediately. A validated
+network returning also retries waiting streams. Network wake locks protect active
+playback with the screen off. METAR readouts include **OBS HHmmZ**, mark observations
+older than three hours **STALE**, and show **OFFLINE** after a failed refresh.
+FFT analysis stops when the panel has no visible subscribers, and the map also
+stays still when Android animations are disabled.
+
 ## Get on air
 
 1. Download [`COMSAT.apk`](https://github.com/tigrohvost/comsat/releases/latest/download/COMSAT.apk).
-2. Install it on Android 8.0 or newer and allow notifications for background controls.
+2. Install it on Android 8.0 or newer. Background controls use a media notification.
 3. Pick an airport, pick an ambient station and balance the two faders.
 4. To see your mix on the home screen, long-press an empty area, open **Widgets**
    and add **COMSAT · Airport + Radio**. Resize the widget to show more detail;
@@ -113,7 +133,8 @@ emulator and checks selectors, stopping playback, saved selections, themes, widg
 updates, resizing and the weather widget's location picker through a real Android widget host,
 the fixed main panel at 320 × 568 dp and in landscape with large text. Screenshots and test
 reports are uploaded separately. Each published release also includes
-`COMSAT-screenshots.zip` with captures of the tested APK in all three themes,
+`COMSAT-screenshots.zip` with captures of the tested APK in all four themes
+(Dark, Light, Nordic and Orange),
 landscape and large text. Repository signing secrets are required for either mode.
 UI Automator runs in the separate `smoke` module and process, preserving the
 app's normal release optimization and startup path.

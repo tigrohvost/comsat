@@ -15,12 +15,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -29,7 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -53,10 +56,11 @@ fun StationListScreen(
     navController: NavController,
     viewModel: MainViewModel
 ) {
-    val stations by viewModel.stations.collectAsState()
-    val loading  by viewModel.stationsLoading.collectAsState()
-    val error    by viewModel.stationsError.collectAsState()
-    val selected by viewModel.selectedStation.collectAsState()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val stations by viewModel.stations.collectAsStateWithLifecycle()
+    val loading  by viewModel.stationsLoading.collectAsStateWithLifecycle()
+    val error    by viewModel.stationsError.collectAsStateWithLifecycle()
+    val selected by viewModel.selectedStation.collectAsStateWithLifecycle()
 
     var query by rememberSaveable { mutableStateOf("") }
 
@@ -149,9 +153,19 @@ fun StationListScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(filtered, key = { it.id }) { station ->
+                val groups = listOf(
+                    "FAVORITES" to filtered.filter { it.id in settings.favoriteStations },
+                    "STATIONS" to filtered.filterNot { it.id in settings.favoriteStations })
+                groups.forEach { (title, group) ->
+                if (group.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
+                    Text(title, style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.tertiary)
+                }
+                items(group, key = { it.id }) { station ->
                     StationCard(
                         station = station,
+                        favorite = station.id in settings.favoriteStations,
+                        onFavorite = { viewModel.toggleFavoriteStation(station.id) },
                         isSelected = station.id == selected?.id,
                         onClick = {
                             viewModel.selectStation(station)
@@ -159,13 +173,14 @@ fun StationListScreen(
                         }
                     )
                 }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun StationCard(station: SomaStation, isSelected: Boolean, onClick: () -> Unit) {
+private fun StationCard(station: SomaStation, favorite: Boolean, onFavorite: () -> Unit, isSelected: Boolean, onClick: () -> Unit) {
     val accentColor = if (isSelected) MaterialTheme.colorScheme.tertiary
     else MaterialTheme.colorScheme.outline
 
@@ -213,6 +228,11 @@ private fun StationCard(station: SomaStation, isSelected: Boolean, onClick: () -
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            }
+            IconButton(onClick = onFavorite) {
+                Icon(if (favorite) Icons.Default.Star else Icons.Default.StarBorder,
+                    contentDescription = "Favorite station ${station.id}",
+                    tint = if (favorite) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (station.listeners > 0) {
                 Text(

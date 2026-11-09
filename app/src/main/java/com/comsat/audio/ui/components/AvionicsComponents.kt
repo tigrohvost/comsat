@@ -25,8 +25,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.Composable
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -341,6 +345,9 @@ fun FooterPlacard(
 @Composable
 fun AtisReadout(
     data: AtisData?,
+    requestFailed: Boolean = false,
+    lastSuccessMillis: Long? = null,
+    compact: Boolean = false,
     accent: Color,
     modifier: Modifier = Modifier
 ) {
@@ -353,9 +360,26 @@ fun AtisReadout(
                 color = dim
             )
         } else {
-            AtisLine(accent, "TEMP" to data.tempText, "DEW" to data.dewText)
-            AtisLine(accent, "RH" to data.rhText, "" to data.qnhText)
-            AtisLine(accent, "WND" to data.windText)
+            var now by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(System.currentTimeMillis()) }
+            val lifecycle = LocalLifecycleOwner.current.lifecycle
+            androidx.compose.runtime.LaunchedEffect(data, lifecycle) {
+                lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    while (true) { now = System.currentTimeMillis(); kotlinx.coroutines.delay(60_000) }
+                }
+            }
+            val stale = data.isStale(now)
+            val valueColor = if (stale) dim else accent
+            val refreshFailed = requestFailed && lastSuccessMillis != null
+            val flags = listOfNotNull("STALE".takeIf { stale }, "OFFLINE".takeIf { refreshFailed })
+                .joinToString(" · ")
+            AtisLine(valueColor, "TEMP" to data.tempText, "DEW" to data.dewText)
+            AtisLine(valueColor, "RH" to data.rhText, "" to data.qnhText,
+                "" to if (compact) flags else "")
+            if (!compact) AtisLine(valueColor, "WND" to data.windText)
+            Text((if (compact) "${data.windText} · " else "") + data.observationText +
+                (if (!compact && flags.isNotBlank()) " · $flags" else ""),
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.labelSmall, color = if (stale || requestFailed) dim else accent)
         }
     }
 }
@@ -365,7 +389,7 @@ private fun AtisLine(accent: Color, vararg parts: Pair<String, String>) {
     val dim = MaterialTheme.colorScheme.onSurfaceVariant
     Text(
         text = buildAnnotatedString {
-            parts.forEachIndexed { i, (label, value) ->
+            parts.filter { it.second.isNotBlank() }.forEachIndexed { i, (label, value) ->
                 if (i > 0) append("  ")
                 if (label.isNotEmpty()) {
                     withStyle(SpanStyle(color = dim)) { append(label) }
@@ -374,6 +398,8 @@ private fun AtisLine(accent: Color, vararg parts: Pair<String, String>) {
                 withStyle(SpanStyle(color = accent)) { append(value) }
             }
         },
-        style = MaterialTheme.typography.labelSmall
+        style = MaterialTheme.typography.labelSmall,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
     )
 }

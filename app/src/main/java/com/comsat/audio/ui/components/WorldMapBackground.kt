@@ -10,6 +10,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -139,6 +140,7 @@ private fun bezier(p0: Offset, c: Offset, p1: Offset, t: Float): Offset {
 fun WorldMapBackground(
     airports: List<Airport>,
     selectedIcao: String?,
+    motionEnabled: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val lineColor = MaterialTheme.colorScheme.primary
@@ -169,16 +171,8 @@ fun WorldMapBackground(
         airports.map { it.icao to toDegSpace(it.lat, it.lon) }
     }
 
-    // Single clock: 0..1 over one full pan of the world
-    val clock by rememberInfiniteTransition(label = "worldMap").animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            tween(PAN_LOOP_MS, easing = LinearEasing),
-            RepeatMode.Restart
-        ),
-        label = "mapClock"
-    )
+    val clock by if (motionEnabled && systemAnimationsEnabled()) animatedMapClock()
+        else remember { androidx.compose.runtime.mutableStateOf(0.15f) }
 
     Canvas(modifier = modifier) {
         val scalePx = size.height * MAP_ZOOM / LAT_SPAN   // px per degree
@@ -306,4 +300,28 @@ private fun DrawScope.drawWorld(
         }
         drawCircle(planeColor.copy(alpha = 0.75f), radius = 1.6.dp.toPx(), center = headPx)
     }
+}
+
+@Composable
+private fun animatedMapClock(): androidx.compose.runtime.State<Float> =
+    rememberInfiniteTransition(label = "worldMap").animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(PAN_LOOP_MS, easing = LinearEasing), RepeatMode.Restart),
+        label = "mapClock")
+
+@Composable
+private fun systemAnimationsEnabled(): Boolean {
+    val resolver = LocalContext.current.contentResolver
+    fun enabled() = android.provider.Settings.Global.getFloat(resolver,
+        android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) != 0f
+    var enabled by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(enabled()) }
+    androidx.compose.runtime.DisposableEffect(resolver) {
+        val observer = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) { enabled = enabled() }
+        }
+        resolver.registerContentObserver(android.provider.Settings.Global.getUriFor(
+            android.provider.Settings.Global.ANIMATOR_DURATION_SCALE), false, observer)
+        onDispose { resolver.unregisterContentObserver(observer) }
+    }
+    return enabled
 }

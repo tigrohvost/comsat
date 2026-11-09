@@ -4,6 +4,9 @@ import com.google.gson.annotations.SerializedName
 import java.util.Locale
 import kotlin.math.exp
 import kotlin.math.roundToInt
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 
 // ─── Airport / LiveATC ────────────────────────────────────────────────────────
 
@@ -104,7 +107,8 @@ enum class StreamStatus { IDLE, LOADING, PLAYING, BUFFERING, PAUSED, RECONNECTIN
 
 data class StreamState(
     val status: StreamStatus = StreamStatus.IDLE,
-    val error: String? = null
+    val error: String? = null,
+    val retryAtMillis: Long? = null
 ) {
     val isActive get() = status == StreamStatus.PLAYING || status == StreamStatus.BUFFERING
     val canPause get() = isActive || status == StreamStatus.LOADING ||
@@ -125,8 +129,18 @@ data class AtisData(
     val qnhHpa: Int?,
     val windDirDeg: Int?,      // null with non-zero speed means variable (VRB)
     val windSpeedKt: Int?,
-    val observedUtc: String?
+    val observedUtc: String?,
+    val observedAtMillis: Long? = null
 ) {
+    val observationText: String get() = observedAtMillis?.let {
+        "OBS " + DateTimeFormatter.ofPattern("HHmm'Z'", Locale.US)
+            .withZone(ZoneOffset.UTC).format(Instant.ofEpochMilli(it))
+    } ?: "OBS ----"
+
+    fun isStale(nowMillis: Long): Boolean = observedAtMillis?.let {
+        nowMillis - it > 3 * 60 * 60_000L
+    } ?: true
+
     val humidityPct: Int
         get() = relativeHumidity(tempC, dewpointC).roundToInt().coerceAtMost(100)
 
@@ -151,7 +165,8 @@ data class MetarDto(
     @SerializedName("wdir") val wdir: String? = null,
     @SerializedName("wspd") val wspd: Double? = null,
     @SerializedName("altim") val altim: Double? = null,
-    @SerializedName("reportTime") val reportTime: String? = null
+    @SerializedName("reportTime") val reportTime: String? = null,
+    @SerializedName("obsTime") val obsTime: Long? = null
 ) {
     fun toAtisData(): AtisData? {
         if (temp == null || dewp == null) return null
@@ -161,7 +176,9 @@ data class MetarDto(
             qnhHpa = altim?.roundToInt(),
             windDirDeg = wdir?.toDoubleOrNull()?.roundToInt(),
             windSpeedKt = wspd?.roundToInt(),
-            observedUtc = reportTime
+            observedUtc = reportTime,
+            observedAtMillis = obsTime?.takeIf { it > 0 && it <= Long.MAX_VALUE / 1000 }?.times(1000)
+                ?: reportTime?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
         )
     }
 }

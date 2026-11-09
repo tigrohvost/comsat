@@ -18,6 +18,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WidgetModelTest {
+    @Test
+    fun `saved descriptor supplies names and cannot leak into another selection`() {
+        val station = com.comsat.audio.data.model.SomaStation("saved", "Saved Station", "", "",
+            "https://example.com/stream", "", network = "Saved Network")
+        val settings = AppSettings(stationId = station.id, stationSnapshot = station)
+        val model = widgetModel(settings, PlaybackSnapshot(), null)
+        assertEquals("Saved Station", model.stationTitle)
+        assertEquals("Saved Network", model.stationNetwork)
+        val changed = widgetModel(settings.copy(stationId = "other"), PlaybackSnapshot(), null)
+        assertEquals("other", changed.stationTitle)
+    }
+
     private val airport = Airport(
         icao = "KJFK",
         name = "John F. Kennedy Intl",

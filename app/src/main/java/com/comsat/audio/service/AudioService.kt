@@ -1,19 +1,21 @@
 package com.comsat.audio.service
 
-import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Notification
+import android.app.AlarmManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.os.SystemClock
 import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageManager
 import android.media.AudioFocusRequest
 import android.media.AudioManager
-import android.net.Uri
 import android.os.Binder
-import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -30,6 +32,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.SimpleBasePlayer
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -42,6 +45,7 @@ import androidx.media3.session.MediaStyleNotificationHelper
 import com.comsat.audio.ComsatApp
 import com.comsat.audio.MainActivity
 import com.comsat.audio.R
+import com.comsat.audio.data.repository.SettingsRepository
 import com.comsat.audio.data.model.StreamState
 import com.comsat.audio.data.model.StreamStatus
 import com.comsat.audio.widget.PlaybackSnapshotRepository
@@ -58,6 +62,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import okhttp3.Call
+import okhttp3.CacheControl
 import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -74,6 +79,7 @@ class AudioService : Service() {
         fun getService(): AudioService = this@AudioService
     }
 
+    @Inject lateinit var settingsRepository: SettingsRepository
     @Inject lateinit var okHttpClient: OkHttpClient
     @Inject lateinit var playbackSnapshotRepository: PlaybackSnapshotRepository
 
@@ -90,13 +96,15 @@ class AudioService : Service() {
 
     private val _somaState = MutableStateFlow(StreamState())
     val somaState: StateFlow<StreamState> = _somaState
+    private val _stopGeneration = MutableStateFlow(0L)
+    val stopGeneration: StateFlow<Long> = _stopGeneration
 
     // ICY metadata: current track title on the Soma stream
     private val _somaNowPlaying = MutableStateFlow<String?>(null)
     val somaNowPlaying: StateFlow<String?> = _somaNowPlaying
 
     // Live FFT bands per stream (see SpectrumProcessor), tapped pre-fader
-    private val atcSpectrumProcessor = SpectrumProcessor()
+    private val atcSpectrumProcessor = SpectrumProcessor(measureLevel = true)
     private val somaSpectrumProcessor = SpectrumProcessor()
     val atcSpectrum: StateFlow<FloatArray> get() = atcSpectrumProcessor.bands
     val somaSpectrum: StateFlow<FloatArray> get() = somaSpectrumProcessor.bands
@@ -113,6 +121,7 @@ class AudioService : Service() {
     private var somaNextTrackApiBase: String? = null
     private var somaCurrentTrackName: String? = null
     private var somaNextTrackCall: Call? = null
+    private var somaPendingSelection: ChainedTrackSelection? = null
 
     private var atcRetryAttempt = 0
     private var somaRetryAttempt = 0
@@ -120,6 +129,125 @@ class AudioService : Service() {
     // Tokens to cancel pending reconnects per stream
     private val atcReconnectToken = Any()
     private val somaReconnectToken = Any()
+
+    private val sleepTimer = SleepTimer()
+    private val sleepToken = Any()
+    private val _sleepRemaining = MutableStateFlow<Long?>(null)
+    val sleepRemaining: StateFlow<Long?> = _sleepRemaining
+    private var sleepGain = 1f
+    private val activityDetector = AtcActivityDetector()
+    private val activityToken = Any()
+    private var atcDuckingEnabled = false
+    private var atcDuckingDepth = 0.5f
+    private var speechGain = 1f
+    private lateinit var connectivityManager: ConnectivityManager
+    private var validatedNetwork: Network? = null
+    private var destroyed = false
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+            val validated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            handler.post {
+                if (destroyed) return@post
+                if (validated && validatedNetwork != network) {
+                    validatedNetwork = network
+                    retryNow(true)
+                    retryNow(false)
+                } else if (!validated && validatedNetwork == network) validatedNetwork = null
+            }
+        }
+        override fun onLost(network: Network) {
+            handler.post { if (validatedNetwork == network) validatedNetwork = null }
+        }
+    }
+
+    fun setSleepTimer(durationMillis: Long) {
+        sleepTimer.start(SystemClock.elapsedRealtime(), durationMillis)
+        handler.removeCallbacksAndMessages(sleepToken)
+        val alarm = PendingIntent.getService(this, 10,
+            Intent(this, AudioService::class.java).setAction(ACTION_SLEEP_EXPIRED)
+                .putExtra("deadline", sleepTimer.deadlineMillis!!),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        getSystemService(AlarmManager::class.java).setAndAllowWhileIdle(
+            AlarmManager.ELAPSED_REALTIME_WAKEUP, sleepTimer.deadlineMillis!!, alarm)
+        tickSleepTimer()
+    }
+
+    fun cancelSleepTimer() {
+        sleepTimer.cancel()
+        handler.removeCallbacksAndMessages(sleepToken)
+        PendingIntent.getService(this, 10,
+            Intent(this, AudioService::class.java).setAction(ACTION_SLEEP_EXPIRED),
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE)?.let {
+            getSystemService(AlarmManager::class.java).cancel(it)
+            it.cancel()
+        }
+        _sleepRemaining.value = null
+        sleepGain = 1f
+        applyVolumes()
+        updateNotification()
+    }
+
+    private fun tickSleepTimer() {
+        val now = SystemClock.elapsedRealtime()
+        val remaining = sleepTimer.remaining(now) ?: return
+        _sleepRemaining.value = remaining
+        sleepGain = sleepTimer.gain(now)
+        applyVolumes()
+        if (remaining == 0L) {
+            android.util.Log.i("COMSAT.Audio", "SLEEP_EXPIRED")
+            stopAll()
+        }
+        else {
+            updateNotification()
+            HandlerCompat.postDelayed(handler, { tickSleepTimer() }, sleepToken, 1_000)
+        }
+    }
+
+    private fun tickActivity() {
+        if (!atcDuckingEnabled || !_atcState.value.isActive || baseAtcVolume == 0f) {
+            speechGain = 1f
+            activityDetector.reset()
+            applyVolumes()
+            return
+        }
+        val now = SystemClock.elapsedRealtime()
+        val level = if (_atcState.value.isActive && baseAtcVolume > 0f)
+            atcSpectrumProcessor.levelAt(now) else 0f
+        speechGain = 1f - activityDetector.update(level, now) * atcDuckingDepth
+        applyVolumes()
+        HandlerCompat.postDelayed(handler, { tickActivity() }, activityToken, 100)
+    }
+
+    private fun updateActivityMonitoring() {
+        handler.removeCallbacksAndMessages(activityToken)
+        tickActivity()
+    }
+
+    /** Only RECONNECTING streams are eligible; pause/stop always win. */
+    fun retryNow(isAtc: Boolean, resetAttempts: Boolean = true) {
+        val state = if (isAtc) _atcState else _somaState
+        if (state.value.status != StreamStatus.RECONNECTING) return
+        val token = if (isAtc) atcReconnectToken else somaReconnectToken
+        handler.removeCallbacksAndMessages(token)
+        if (resetAttempts) {
+            if (isAtc) atcRetryAttempt = 0 else somaRetryAttempt = 0
+        }
+        if (!requestFocus()) {
+            state.value = StreamState(StreamStatus.PAUSED)
+            updateNotification()
+            return
+        }
+        state.value = StreamState(StreamStatus.LOADING)
+        val url = if (isAtc) atcUrl else somaUrl
+        if (!isAtc && somaNextTrackApiBase != null && url == null) fetchNextChainedTrack()
+        else if (url != null) {
+            val player = if (isAtc) atcPlayer else somaPlayer
+            player.setMediaItem(MediaItem.fromUri(url))
+            player.prepare()
+            player.play()
+        }
+        updateNotification()
+    }
 
     // ─── Audio focus ──────────────────────────────────────────────────────────
 
@@ -169,6 +297,8 @@ class AudioService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        connectivityManager = getSystemService(ConnectivityManager::class.java)
+        connectivityManager.registerDefaultNetworkCallback(networkCallback)
         audioManager = getSystemService(AudioManager::class.java)
         atcPlayer = buildPlayer(isAtc = true)
         somaPlayer = buildPlayer(isAtc = false)
@@ -188,9 +318,19 @@ class AudioService : Service() {
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
         widgetStateScope.launch {
+            settingsRepository.settings.collect { settings ->
+                atcDuckingEnabled = settings.atcDuckingEnabled
+                atcDuckingDepth = settings.atcDuckingDepth
+                updateActivityMonitoring()
+            }
+        }
+        widgetStateScope.launch {
             combine(atcState, somaState) { atc, soma -> atc.status to soma.status }
                 .distinctUntilChanged()
                 .collect { (atc, soma) -> playbackSnapshotRepository.updatePlayback(atc, soma) }
+        }
+        widgetStateScope.launch {
+            atcState.collect { updateActivityMonitoring() }
         }
     }
 
@@ -204,6 +344,13 @@ class AudioService : Service() {
             stopSelf(startId)
             return START_NOT_STICKY
         }
+        if (intent.action == ACTION_SLEEP_EXPIRED) {
+            if (intent.getLongExtra("deadline", -1) == sleepTimer.deadlineMillis &&
+                sleepTimer.remaining(SystemClock.elapsedRealtime()) == 0L) stopAll()
+            else if (_atcState.value.status == StreamStatus.IDLE &&
+                _somaState.value.status == StreamStatus.IDLE) stopSelf(startId)
+            return START_NOT_STICKY
+        }
         startForeground(ComsatApp.NOTIFICATION_ID, buildNotification())
         when (intent.action) {
             ACTION_TOGGLE_ALL -> toggleAll()
@@ -213,6 +360,9 @@ class AudioService : Service() {
     }
 
     override fun onDestroy() {
+        destroyed = true
+        cancelSleepTimer()
+        connectivityManager.unregisterNetworkCallback(networkCallback)
         widgetStateScope.cancel()
         playbackSnapshotRepository.clearPlayback()
         unregisterReceiver(noisyReceiver)
@@ -266,9 +416,10 @@ class AudioService : Service() {
     }
 
     private fun applyVolumes() {
-        val factor = if (ducked) DUCK_FACTOR else 1f
+        val factor = (if (ducked) DUCK_FACTOR else 1f) * sleepGain
         atcPlayer.volume = baseAtcVolume * factor
-        somaPlayer.volume = baseSomaVolume * factor
+        somaPlayer.volume = baseSomaVolume * factor *
+            (if (atcDuckingEnabled && baseAtcVolume > 0f && _atcState.value.isActive) speechGain else 1f)
     }
 
     // ─── Public controls ──────────────────────────────────────────────────────
@@ -292,7 +443,7 @@ class AudioService : Service() {
         updateNotification()
     }
 
-    fun stopAtc() {
+    fun stopAtc(keepForRetune: Boolean = false) {
         focusResumePlan.cancelAtc()
         atcUrl = null
         atcLabel = null
@@ -301,7 +452,7 @@ class AudioService : Service() {
         atcPlayer.stop()
         atcSpectrumProcessor.reset()
         _atcState.value = StreamState(StreamStatus.IDLE)
-        maybeStopForeground()
+        if (!keepForRetune) maybeStopForeground()
         updateNotification()
     }
 
@@ -348,7 +499,7 @@ class AudioService : Service() {
         updateNotification()
     }
 
-    fun stopSoma() {
+    fun stopSoma(keepForRetune: Boolean = false) {
         focusResumePlan.cancelSoma()
         clearChainedPlayback()
         somaUrl = null
@@ -359,13 +510,14 @@ class AudioService : Service() {
         somaSpectrumProcessor.reset()
         _somaNowPlaying.value = null
         _somaState.value = StreamState(StreamStatus.IDLE)
-        maybeStopForeground()
+        if (!keepForRetune) maybeStopForeground()
         updateNotification()
     }
 
     private fun clearChainedPlayback() {
         somaNextTrackApiBase = null
         somaCurrentTrackName = null
+        somaPendingSelection = null
         somaNextTrackCall?.cancel()
         somaNextTrackCall = null
     }
@@ -377,11 +529,11 @@ class AudioService : Service() {
         // already-ended track.
         somaUrl = null
         somaNextTrackCall?.cancel()
-        val requestUrl = buildString {
-            append(apiBase).append("/next-track")
-            somaCurrentTrackName?.let { append("?current=").append(Uri.encode(it)) }
-        }
-        val call = okHttpClient.newCall(Request.Builder().url(requestUrl).build())
+        val selection = somaPendingSelection ?: ChainedTrackSelection(somaCurrentTrackName)
+            .also { somaPendingSelection = it }
+        val needsClock = selection.requestId == null
+        val call = okHttpClient.newCall(Request.Builder().url(selection.url(apiBase))
+            .cacheControl(CacheControl.FORCE_NETWORK).build())
         somaNextTrackCall = call
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
@@ -398,13 +550,11 @@ class AudioService : Service() {
             }
 
             override fun onResponse(call: Call, response: Response) {
-                val track = response.use { resp ->
+                val status = response.code
+                val httpDate = response.header("Date")
+                val json = response.use { resp ->
                     if (!resp.isSuccessful) null
-                    else runCatching {
-                        val json = JSONObject(resp.body.string())
-                        val path = json.getString("url")
-                        path to json.optString("name", path.substringAfterLast('/'))
-                    }.getOrNull()
+                    else runCatching { JSONObject(resp.body.string()) }.getOrNull()
                 }
                 handler.post {
                     if (somaNextTrackCall !== call) return@post
@@ -414,9 +564,29 @@ class AudioService : Service() {
                     if (somaNextTrackApiBase != apiBase ||
                         _somaState.value.status != StreamStatus.LOADING
                     ) return@post
-                    val trackUrl = track?.let { resolveChainedTrackUrl(apiBase, it.first) }
-                    if (track == null || trackUrl == null) onChainedFetchFailed()
-                    else playChainedTrack(trackUrl, track.second)
+                    if (somaPendingSelection !== selection) return@post
+                    if (needsClock) {
+                        if (status in 200..299 && selection.synchronize(
+                                json?.optLong("server_time_ms")?.takeIf { it > 0 }, httpDate
+                            )) fetchNextChainedTrack()
+                        else onChainedFetchFailed()
+                        return@post
+                    }
+                    // Only an explicit expiry retires a lost selection. A timeout,
+                    // 429 or 5xx retries the same id and the same current parameter.
+                    if (status == 410) somaPendingSelection = null
+                    val path = json?.optString("url")?.takeIf { it.isNotBlank() && it != "null" }
+                    val trackUrl = path?.let { resolveChainedTrackUrl(apiBase, it) }
+                    if (trackUrl == null) {
+                        // A successful empty-pool response selected no file; allow
+                        // a later retry to ask again rather than cache emptiness.
+                        if (status in 200..299 && json != null) somaPendingSelection = null
+                        onChainedFetchFailed()
+                    } else {
+                        somaPendingSelection = null
+                        playChainedTrack(trackUrl, json.optString("name")
+                            .ifBlank { path.orEmpty().substringAfterLast('/') })
+                    }
                 }
             }
         })
@@ -441,16 +611,14 @@ class AudioService : Service() {
     private fun onChainedFetchFailed() {
         if (somaNextTrackApiBase == null) return
         val attempt = ++somaRetryAttempt
-        _somaState.value = StreamState(StreamStatus.RECONNECTING, "STREAM OFFLINE")
-        val delayMs = when (attempt) {
-            1 -> 5_000L
-            2 -> 10_000L
-            else -> 30_000L
-        }
+        val delayMs = retryDelayMillis(attempt)
+        handler.removeCallbacksAndMessages(somaReconnectToken)
+        _somaState.value = StreamState(StreamStatus.RECONNECTING, "STREAM OFFLINE",
+            SystemClock.elapsedRealtime() + delayMs)
+        android.util.Log.i("COMSAT.Audio", "AMBIENT RECONNECTING attempt=$attempt retryMs=$delayMs")
         HandlerCompat.postDelayed(handler, {
             if (_somaState.value.status == StreamStatus.RECONNECTING) {
-                _somaState.value = StreamState(StreamStatus.LOADING)
-                fetchNextChainedTrack()
+                retryNow(false, resetAttempts = false)
             }
         }, somaReconnectToken, delayMs)
         updateNotification()
@@ -458,7 +626,7 @@ class AudioService : Service() {
 
     fun setAtcVolume(v: Float) {
         baseAtcVolume = v.coerceIn(0f, 1f)
-        applyVolumes()
+        updateActivityMonitoring()
     }
 
     fun setSomaVolume(v: Float) {
@@ -546,6 +714,8 @@ class AudioService : Service() {
     }
 
     private fun stopAll() {
+        _stopGeneration.value++
+        cancelSleepTimer()
         stopAtc()
         stopSoma()
     }
@@ -572,6 +742,7 @@ class AudioService : Service() {
                 .build()
         }
         val player = ExoPlayer.Builder(this, renderersFactory)
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             // handleAudioFocus=false: two players would steal focus from each other.
             // Focus is managed once at the service level instead.
@@ -636,11 +807,19 @@ class AudioService : Service() {
                 // Paused players can still fail while filling their buffer.
                 // Leave them paused; resumeStream will prepare the idle player.
                 if (!stateFlow.value.canPause) return
+                // A paused file may have left the station pool after its lease
+                // expired. Retrying that 404/410 forever cannot recover playback.
+                // Network and decoder failures still retry the selected URL.
+                if (!isAtc && somaNextTrackApiBase != null &&
+                    generateSequence<Throwable>(error) { it.cause }
+                        .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
+                        .any { it.responseCode == 404 || it.responseCode == 410 }
+                ) somaUrl = null
                 val url = if (isAtc) atcUrl else somaUrl
                 val attempt = if (isAtc) ++atcRetryAttempt else ++somaRetryAttempt
                 stateFlow.value = StreamState(StreamStatus.RECONNECTING, friendlyErrorMessage(error))
                 // Back-off reconnect: 5 s, then 10 s, then 30 s
-                scheduleReconnect(player, url, stateFlow, attempt, isAtc)
+                scheduleReconnect(url, stateFlow, attempt, isAtc)
             }
         })
         return player
@@ -661,27 +840,22 @@ class AudioService : Service() {
         }
 
     private fun scheduleReconnect(
-        player: ExoPlayer,
         url: String?,
         stateFlow: MutableStateFlow<StreamState>,
         attempt: Int,
         isAtc: Boolean
     ) {
-        if (url == null) return
-        val delayMs = when (attempt) {
-            1 -> 5_000L
-            2 -> 10_000L
-            else -> 30_000L
-        }
+        if (url == null && (isAtc || somaNextTrackApiBase == null)) return
+        val delayMs = retryDelayMillis(attempt)
         val token = if (isAtc) atcReconnectToken else somaReconnectToken
+        handler.removeCallbacksAndMessages(token)
+        stateFlow.value = stateFlow.value.copy(retryAtMillis = SystemClock.elapsedRealtime() + delayMs)
+        android.util.Log.i("COMSAT.Audio",
+            "${if (isAtc) "ATC" else "AMBIENT"} RECONNECTING attempt=$attempt retryMs=$delayMs")
         HandlerCompat.postDelayed(handler, {
-            if (stateFlow.value.status == StreamStatus.RECONNECTING) {
-                stateFlow.value = StreamState(StreamStatus.LOADING)
-                player.setMediaItem(MediaItem.fromUri(url))
-                player.prepare()
-                player.play()
-            }
+            retryNow(isAtc, resetAttempts = false)
         }, token, delayMs)
+        updateNotification()
     }
 
     // ─── Foreground service ───────────────────────────────────────────────────
@@ -695,12 +869,14 @@ class AudioService : Service() {
         if (_atcState.value.status == StreamStatus.IDLE &&
             _somaState.value.status == StreamStatus.IDLE
         ) {
+            cancelSleepTimer()
             abandonFocus()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
     }
 
+    @SuppressLint("MissingPermission") // MediaSession notifications are exempt from POST_NOTIFICATIONS.
     private fun updateNotification() {
         // Posted so it never runs re-entrantly inside a CompositePlayer handle* call
         handler.post { compositePlayer.refresh() }
@@ -708,13 +884,11 @@ class AudioService : Service() {
         if (_atcState.value.status == StreamStatus.IDLE &&
             _somaState.value.status == StreamStatus.IDLE
         ) return
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            NotificationManagerCompat.from(this)
-                .notify(ComsatApp.NOTIFICATION_ID, buildNotification())
-        }
+        // buildNotification always includes MediaStyle and this service's session
+        // token. Let Android apply its media exemption and channel preferences;
+        // checking the permission here leaves an already-visible notification stale.
+        NotificationManagerCompat.from(this)
+            .notify(ComsatApp.NOTIFICATION_ID, buildNotification())
     }
 
     private fun buildNotification(): Notification {
@@ -732,12 +906,13 @@ class AudioService : Service() {
             atcLabel.takeIf { _atcState.value.status != StreamStatus.IDLE },
             somaLabel.takeIf { _somaState.value.status != StreamStatus.IDLE }
         )
-        val contentText = when {
+        val labelsText = when {
             activeLabels.isEmpty() -> getString(R.string.notification_text)
             anyActive -> activeLabels.joinToString(" + ")
             else -> "${getString(R.string.notification_paused)} · ${activeLabels.joinToString(" + ")}"
         }
 
+        val contentText = labelsText + (_sleepRemaining.value?.let { " · ${sleepTimeText(it)}" } ?: "")
         return NotificationCompat.Builder(this, ComsatApp.NOTIFICATION_CHANNEL_ID)
             .setContentTitle(getString(R.string.notification_title))
             .setContentText(contentText)
@@ -856,6 +1031,7 @@ class AudioService : Service() {
 
     companion object {
         const val ACTION_TOGGLE_ALL = "com.comsat.audio.action.TOGGLE_ALL"
+        private const val ACTION_SLEEP_EXPIRED = "com.comsat.audio.SLEEP_EXPIRED"
         const val ACTION_STOP_ALL = "com.comsat.audio.action.STOP_ALL"
 
         private const val DUCK_FACTOR = 0.3f

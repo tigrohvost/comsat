@@ -29,13 +29,16 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.material3.Text
 import androidx.compose.runtime.withFrameNanos
 import com.comsat.audio.service.SpectrumAnalysis
+import kotlin.math.exp
 import kotlin.math.max
 
-// Winamp-style spectrum: bars rise instantly, decay slowly; peak caps fall
-// slower still. Fed by real FFT bands from the service; scaled by the channel
-// fader so the display follows the mix. All rates are per second.
-private const val BAR_DECAY = 2.2f
+// Smooth the ~30 Hz FFT updates at display refresh rate, with a quick attack
+// and a softer release. Time constants are in seconds so the response stays
+// consistent across refresh rates; peak caps drift down at units per second.
+private const val BAR_ATTACK_SECONDS = 0.045f
+private const val BAR_RELEASE_SECONDS = 0.22f
 private const val PEAK_DECAY = 0.5f
+private const val SETTLED_LEVEL = 0.001f
 
 @Composable
 fun SpectrumBar(
@@ -63,9 +66,16 @@ fun SpectrumBar(
             last = now
             val src = latestBands
             val gain = if (animating) latestVolume else 0f
+            val attack = 1f - exp(-dt / BAR_ATTACK_SECONDS)
+            val release = 1f - exp(-dt / BAR_RELEASE_SECONDS)
             for (i in levels.indices) {
                 val target = (src.getOrElse(i) { 0f } * gain).coerceIn(0f, 1f)
-                levels[i] = max(target, levels[i] - BAR_DECAY * dt)
+                val current = levels[i]
+                val follow = if (target > current) attack else release
+                val level = current + (target - current) * follow
+                // Exponential release approaches zero indefinitely; snap the
+                // invisible tail to rest so paused/muted panels stop drawing.
+                levels[i] = if (target == 0f && level < SETTLED_LEVEL) 0f else level
                 peaks[i] = max(levels[i], peaks[i] - PEAK_DECAY * dt)
             }
             frame = now
@@ -75,6 +85,7 @@ fun SpectrumBar(
     val capColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f)
     val screenBg = MaterialTheme.colorScheme.background.copy(alpha = 0.6f)
     val outline = MaterialTheme.colorScheme.outline
+    val gridColor = accent.copy(alpha = 0.10f)
 
     // Height is the caller's call: a fixed .height() or a Column weight so the
     // bar absorbs whatever is left on screen. Unconstrained, it falls back to
@@ -90,6 +101,19 @@ fun SpectrumBar(
             @Suppress("UNUSED_EXPRESSION") frame  // invalidate on every physics tick
             val n = levels.size
             val bw = size.width / n
+            // One square cell per FFT band; lines sit in the gaps between bars.
+            val gridStroke = 0.5.dp.toPx()
+            if (bw > 0f) {
+                for (i in 1 until n) {
+                    val x = i * bw
+                    drawLine(gridColor, Offset(x, 0f), Offset(x, size.height), gridStroke)
+                }
+                var y = size.height - bw
+                while (y > 0f) {
+                    drawLine(gridColor, Offset(0f, y), Offset(size.width, y), gridStroke)
+                    y -= bw
+                }
+            }
             val usable = (size.height - 8.dp.toPx()).coerceAtLeast(0f)
             val gap = minOf(2.dp.toPx(), bw * 0.2f)
             val gradient = Brush.verticalGradient(

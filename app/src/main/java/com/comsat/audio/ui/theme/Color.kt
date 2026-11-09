@@ -49,3 +49,17 @@ val NordSecondary = Color(0xFFB48EAD)   // nord15 — Aurora purple (secondary a
 val NordTertiary  = Color(0xFFA3BE8C)   // nord14 — Aurora green (status/tertiary)
 val NordError     = Color(0xFFE49AA1)   // Aurora red, lifted for small fault readouts
 val NordYellow    = Color(0xFFEBCB8B)   // nord13 — Aurora yellow (warning/caution)
+
+// ─── Orange · dark_orange.jpg reference ──────────────────────────────────────
+// Near-black red panels, deep red bezels and saturated red readouts.
+val OrangeBg        = Color(0xFF120808)
+val OrangeSurface   = Color(0xFF240F0F)
+val OrangeSurfVar   = Color(0xFF351717)
+val OrangeOutline   = Color(0xFF8C3030)
+val OrangeText      = Color(0xFFFF9290)
+val OrangeTextSec   = Color(0xFFE57572)
+val OrangePrimary   = Color(0xFFFF3B3B)
+val OrangeSecondary = Color(0xFFEF5050)
+val OrangeTertiary  = Color(0xFFF36460)
+val OrangeError     = Color(0xFFFF7474)
+val OrangeWarning   = Color(0xFFFF9290)

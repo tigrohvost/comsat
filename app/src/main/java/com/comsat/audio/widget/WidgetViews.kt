@@ -438,5 +438,9 @@ object WidgetViews {
             R.drawable.widget_background_light, TextPrimaryDay.toArgb(), TextSecDay.toArgb(), OutlineDay.toArgb(),
             CyanDay.toArgb(), MagentaDay.toArgb(), GreenDay.toArgb(), WarningDay.toArgb(), ErrorDay.toArgb()
         )
+        ThemeMode.ORANGE -> Palette(
+            R.drawable.widget_background_orange, OrangeText.toArgb(), OrangeTextSec.toArgb(), OrangeOutline.toArgb(),
+            OrangePrimary.toArgb(), OrangeSecondary.toArgb(), OrangeTertiary.toArgb(), OrangeWarning.toArgb(), OrangeError.toArgb()
+        )
     }
 }

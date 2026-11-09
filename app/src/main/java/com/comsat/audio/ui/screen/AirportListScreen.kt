@@ -18,6 +18,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -27,7 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -50,9 +52,10 @@ fun AirportListScreen(
     navController: NavController,
     viewModel: MainViewModel
 ) {
-    val airports  by viewModel.airports.collectAsState()
-    val loading   by viewModel.airportsLoading.collectAsState()
-    val selected  by viewModel.selectedAirport.collectAsState()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val airports  by viewModel.airports.collectAsStateWithLifecycle()
+    val loading   by viewModel.airportsLoading.collectAsStateWithLifecycle()
+    val selected  by viewModel.selectedAirport.collectAsStateWithLifecycle()
 
     var query by rememberSaveable { mutableStateOf("") }
 
@@ -69,7 +72,10 @@ fun AirportListScreen(
         }
         .sortedWith(compareByDescending<Airport> { it.isOnline }.thenBy { it.icao })
 
-    val grouped = filtered.groupBy { it.region }
+    val grouped = linkedMapOf<String, List<Airport>>()
+    filtered.filter { it.icao in settings.favoriteAirports }.takeIf { it.isNotEmpty() }
+        ?.let { grouped["FAVORITES"] = it }
+    grouped.putAll(filtered.filterNot { it.icao in settings.favoriteAirports }.groupBy { it.region })
 
     Column(
         modifier = Modifier
@@ -138,6 +144,8 @@ fun AirportListScreen(
                     items(regionAirports, key = { it.icao }) { airport ->
                         AirportRow(
                             airport = airport,
+                            favorite = airport.icao in settings.favoriteAirports,
+                            onFavorite = { viewModel.toggleFavoriteAirport(airport.icao) },
                             isSelected = airport.icao == selected?.icao,
                             onClick = {
                                 viewModel.selectAirport(airport)
@@ -153,7 +161,7 @@ fun AirportListScreen(
 }
 
 @Composable
-private fun AirportRow(airport: Airport, isSelected: Boolean, onClick: () -> Unit) {
+private fun AirportRow(airport: Airport, favorite: Boolean, onFavorite: () -> Unit, isSelected: Boolean, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -197,6 +205,11 @@ private fun AirportRow(airport: Airport, isSelected: Boolean, onClick: () -> Uni
             )
         }
 
+        IconButton(onClick = onFavorite) {
+            Icon(if (favorite) Icons.Default.Star else Icons.Default.StarBorder,
+                contentDescription = "Favorite airport ${airport.icao}",
+                tint = if (favorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         if (airport.probed && !airport.isOnline) {
             Text(
                 text = "OFFLINE",

@@ -1,5 +1,11 @@
 package com.comsat.audio.ui.screen
 
+import androidx.compose.foundation.clickable
+import android.os.SystemClock
+import com.comsat.audio.service.sleepTimeText
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -28,7 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,18 +78,22 @@ fun MainScreen(
     navController: NavController,
     viewModel: MainViewModel
 ) {
-    val atcState     by viewModel.atcState.collectAsState()
-    val somaState    by viewModel.somaState.collectAsState()
-    val atcVolume    by viewModel.atcVolume.collectAsState()
-    val somaVolume   by viewModel.somaVolume.collectAsState()
-    val airport      by viewModel.selectedAirport.collectAsState()
-    val station      by viewModel.selectedStation.collectAsState()
-    val nowPlaying   by viewModel.somaNowPlaying.collectAsState()
-    val atcSpectrum  by viewModel.atcSpectrum.collectAsState()
-    val somaSpectrum by viewModel.somaSpectrum.collectAsState()
-    val atisData     by viewModel.atisData.collectAsState()
-    val netOnline    by viewModel.networkOnline.collectAsState()
-    val airports     by viewModel.airports.collectAsState()
+    val atcState     by viewModel.atcState.collectAsStateWithLifecycle()
+    val somaState    by viewModel.somaState.collectAsStateWithLifecycle()
+    val atcVolume    by viewModel.atcVolume.collectAsStateWithLifecycle()
+    val somaVolume   by viewModel.somaVolume.collectAsStateWithLifecycle()
+    val airport      by viewModel.selectedAirport.collectAsStateWithLifecycle()
+    val station      by viewModel.selectedStation.collectAsStateWithLifecycle()
+    val nowPlaying   by viewModel.somaNowPlaying.collectAsStateWithLifecycle()
+    val atcSpectrum  by viewModel.atcSpectrum.collectAsStateWithLifecycle()
+    val somaSpectrum by viewModel.somaSpectrum.collectAsStateWithLifecycle()
+    val atisData     by viewModel.atisData.collectAsStateWithLifecycle()
+    val netOnline    by viewModel.networkOnline.collectAsStateWithLifecycle()
+    val airports     by viewModel.airports.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val sleepRemaining by viewModel.sleepRemaining.collectAsStateWithLifecycle()
+    val atisFailed by viewModel.atisRequestFailed.collectAsStateWithLifecycle()
+    val atisLastSuccess by viewModel.atisLastSuccess.collectAsStateWithLifecycle()
 
     Box(
         modifier = Modifier
@@ -90,6 +101,7 @@ fun MainScreen(
             .background(MaterialTheme.colorScheme.background)
     ) {
         WorldMapBackground(
+            motionEnabled = settings.mapMotionEnabled,
             airports = airports,
             selectedIcao = airport?.icao,
             modifier = Modifier.fillMaxSize()
@@ -109,7 +121,7 @@ fun MainScreen(
                     .padding(vertical = panelSpacing),
                 verticalArrangement = Arrangement.spacedBy(panelSpacing)
             ) {
-                PanelHeader()
+                PanelHeader(navController, sleepRemaining)
 
                 StreamPanels(
                     sideBySide = sideBySide,
@@ -132,6 +144,7 @@ fun MainScreen(
                             spectrum = atcSpectrum,
                             volume = atcVolume,
                             onVolumeChange = viewModel::setAtcVolume,
+                            onRetry = viewModel::retryAtc,
                             onToggle = {
                                 if (airport == null) navController.navigate(Screen.Airports.route)
                                 else viewModel.toggleAtcPlayback()
@@ -145,6 +158,9 @@ fun MainScreen(
                             cornerContent = {
                                 AtisReadout(
                                     data = atisData,
+                                    requestFailed = atisFailed,
+                                    lastSuccessMillis = atisLastSuccess,
+                                    compact = combinedControls,
                                     accent = MaterialTheme.colorScheme.primary
                                 )
                             }
@@ -161,11 +177,12 @@ fun MainScreen(
                     ) {
                         StreamModuleBody(
                             sourceName = station?.title?.uppercase() ?: "NO STATION SELECTED",
-                            subLabel = (nowPlaying ?: station?.let { "${it.network} — ${it.genre}" })?.uppercase(),
+                            subLabel = (nowPlaying ?: station?.let { listOf(it.network, it.genre).filter(String::isNotBlank).joinToString(" — ") })?.uppercase(),
                             state = somaState,
                             spectrum = somaSpectrum,
                             volume = somaVolume,
                             onVolumeChange = viewModel::setSomaVolume,
+                            onRetry = viewModel::retrySoma,
                             onToggle = {
                                 if (station == null) navController.navigate(Screen.Stations.route)
                                 else viewModel.toggleSomaPlayback()
@@ -225,7 +242,7 @@ private fun StreamPanels(
 // ─── Header: brand plate + UTC clock + theme selector ─────────────────────────
 
 @Composable
-private fun PanelHeader() {
+private fun PanelHeader(navController: NavController, sleepRemaining: Long?) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -244,22 +261,25 @@ private fun PanelHeader() {
             )
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            UtcClock()
-            ThemeMenuButton()
+            UtcClock(sleepRemaining)
+            ThemeMenuButton(navController)
         }
     }
 }
 
 @Composable
-private fun UtcClock() {
+private fun UtcClock(sleepRemaining: Long?) {
     var utc by remember { mutableStateOf("--:--:--") }
-    LaunchedEffect(Unit) {
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(lifecycle) {
         val fmt = SimpleDateFormat("HH:mm:ss", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")
         }
-        while (true) {
-            utc = fmt.format(Date())
-            delay(1_000)
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                utc = fmt.format(Date())
+                delay(1_000)
+            }
         }
     }
     Column(horizontalAlignment = Alignment.End) {
@@ -269,7 +289,7 @@ private fun UtcClock() {
             color = MaterialTheme.colorScheme.onBackground
         )
         Text(
-            text = "Z +0000",
+            text = sleepRemaining?.let(::sleepTimeText) ?: "Z +0000",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -277,7 +297,7 @@ private fun UtcClock() {
 }
 
 @Composable
-private fun ThemeMenuButton() {
+private fun ThemeMenuButton(navController: NavController) {
     val themeMode = LocalThemeMode.current
     val setTheme = LocalSetTheme.current
     var expanded by remember { mutableStateOf(false) }
@@ -286,6 +306,7 @@ private fun ThemeMenuButton() {
         ThemeMode.DARK   -> Icons.Default.DarkMode
         ThemeMode.LIGHT  -> Icons.Default.LightMode
         ThemeMode.NORDIC -> Icons.Default.AcUnit
+        ThemeMode.ORANGE -> Icons.Default.LocalFireDepartment
     }
 
     Box {
@@ -297,11 +318,20 @@ private fun ThemeMenuButton() {
             )
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("SAVED MIXES") }, onClick = {
+                expanded = false
+                navController.navigate(Screen.Mixes.route)
+            })
+            DropdownMenuItem(text = { Text("SETTINGS / SLEEP") }, onClick = {
+                expanded = false
+                navController.navigate(Screen.Settings.route)
+            })
             ThemeMode.entries.forEach { mode ->
                 val (icon, title) = when (mode) {
                     ThemeMode.DARK   -> Icons.Default.DarkMode to "DARK"
                     ThemeMode.LIGHT  -> Icons.Default.LightMode to "LIGHT"
                     ThemeMode.NORDIC -> Icons.Default.AcUnit to "NORDIC"
+                    ThemeMode.ORANGE -> Icons.Default.LocalFireDepartment to "ORANGE"
                 }
                 val selectedTint = if (mode == themeMode) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.onSurfaceVariant
@@ -335,6 +365,7 @@ private fun ColumnScope.StreamModuleBody(
     volume: Float,
     onVolumeChange: (Float) -> Unit,
     onToggle: () -> Unit,
+    onRetry: () -> Unit,
     onSelectSource: () -> Unit,
     accent: Color,
     channel: String,
@@ -450,8 +481,19 @@ private fun ColumnScope.StreamModuleBody(
     }
 
     if (state.error != null) {
+        var now by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
+        val lifecycle = LocalLifecycleOwner.current.lifecycle
+        LaunchedEffect(state.retryAtMillis, lifecycle) {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (true) { now = SystemClock.elapsedRealtime(); delay(1_000) }
+            }
+        }
+        val retrySeconds = state.retryAtMillis?.let { ((it - now).coerceAtLeast(0) + 999) / 1000 }
         Text(
-            text = "ERR: ${state.error}",
+            text = if (retrySeconds != null) "${state.error.substringBefore(" ·")} · RETRY $retrySeconds S"
+                else "ERR: ${state.error}",
+            modifier = Modifier.clickable(enabled = state.retryAtMillis != null, onClick = onRetry)
+                .semantics { contentDescription = "Retry $channel now" },
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.error,
             maxLines = 1,
