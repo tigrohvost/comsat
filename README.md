@@ -57,6 +57,18 @@ Track changes ask the station with one stable request per transition, so a lost
 answer or a pause does not skip a piece, and a file that has left the station's
 pool is replaced by a new selection instead of an endless retry.
 
+Version 1.7.3 keeps the music down for the whole of a transmission. Until now the
+speech gate learned its noise floor from everything it heard, speech included:
+about four seconds into a long transmission the floor had risen over the voice
+and the music came back on top of it, and on a busy frequency it stopped going
+down at all. The floor now rises only between transmissions, on a flat level
+(an open carrier, hiss) or after two minutes without a break, and never above
+the old one, so the music goes down at least whenever it did before. The price:
+after a transmission the music returns 1.5 s later plus a one-second fade, as it
+always did after short ones; hiss that opens right after a transmission keeps it
+down for about five seconds; a noisy carrier that keeps dropping out can hold it
+down for about two minutes before it is learned.
+
 ## Get on air
 
 1. Download [`COMSAT.apk`](https://github.com/tigrohvost/comsat/releases/latest/download/COMSAT.apk).
@@ -152,8 +164,8 @@ Set the repository secrets `COMSAT_KEYSTORE_BASE64` and
 matching semantic tag:
 
 ```bash
-git tag -a v1.7.2 -m "COMSAT 1.7.2"
-git push origin v1.7.2
+git tag -a v1.7.3 -m "COMSAT 1.7.3"
+git push origin v1.7.3
 ```
 
 The release workflow rejects a tag that does not match the app version. A
