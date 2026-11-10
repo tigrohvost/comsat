@@ -45,6 +45,7 @@ import androidx.media3.session.MediaStyleNotificationHelper
 import com.comsat.audio.ComsatApp
 import com.comsat.audio.MainActivity
 import com.comsat.audio.R
+import com.comsat.audio.di.AppModule
 import com.comsat.audio.data.repository.SettingsRepository
 import com.comsat.audio.data.model.StreamState
 import com.comsat.audio.data.model.StreamStatus
@@ -72,6 +73,7 @@ import okhttp3.Response
 import org.json.JSONObject
 import java.io.IOException
 import javax.inject.Inject
+import javax.inject.Named
 
 @OptIn(UnstableApi::class)
 @AndroidEntryPoint
@@ -83,6 +85,7 @@ class AudioService : Service() {
 
     @Inject lateinit var settingsRepository: SettingsRepository
     @Inject lateinit var okHttpClient: OkHttpClient
+    @Inject @Named(AppModule.STATION_HTTP) lateinit var stationHttpClient: OkHttpClient
     @Inject lateinit var playbackSnapshotRepository: PlaybackSnapshotRepository
 
     private val widgetStateScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -122,7 +125,14 @@ class AudioService : Service() {
     // station's /next-track API and the next one is chained on STATE_ENDED.
     private var somaNextTrackApiBase: String? = null
     private var somaCurrentTrackName: String? = null
-    private var somaNextTrackCall: Call? = null
+    private var somaNextTrackQuestion: StationQuestion<StationAnswer>? = null
+    private val stationRoute = StationRoute()
+    // Requests to the tuned track-chained station share its kept connection (see
+    // AppModule); every other request opens its own, as before.
+    private val httpCalls = Call.Factory { request ->
+        (if (stationRoute.owns(request.url.host)) stationHttpClient else okHttpClient)
+            .newCall(request)
+    }
     private var somaPendingSelection: ChainedTrackSelection? = null
 
     // Live link of a chained station (see StationLiveLink.kt): while its music plays,
@@ -533,6 +543,7 @@ class AudioService : Service() {
         somaPlayer.stop()
         somaSpectrumProcessor.reset()
         somaNextTrackApiBase = apiBase.trimEnd('/')
+        stationRoute.tuneTo(apiBase)
         somaUrl = null
         somaLabel = label
         somaRetryAttempt = 0
@@ -567,8 +578,8 @@ class AudioService : Service() {
         somaNextTrackApiBase = null
         somaCurrentTrackName = null
         somaPendingSelection = null
-        somaNextTrackCall?.cancel()
-        somaNextTrackCall = null
+        somaNextTrackQuestion?.cancel()
+        somaNextTrackQuestion = null
         // A retune may keep the same stream status, which the state collector cannot see.
         updateLiveLink()
     }
@@ -643,7 +654,7 @@ class AudioService : Service() {
                 .header(ListenerToken.HEADER, token)
                 .build()
         }
-        val call = okHttpClient.newCall(request)
+        val call = httpCalls.newCall(request)
         liveHeartbeatCall = call
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
@@ -679,7 +690,7 @@ class AudioService : Service() {
         val generation = liveGeneration
         val request = Request.Builder().url(stationUrl(base, sayFeed.path()))
             .cacheControl(CacheControl.FORCE_NETWORK).build()
-        val call = okHttpClient.newCall(request)
+        val call = httpCalls.newCall(request)
         liveSayCall = call
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
@@ -783,7 +794,7 @@ class AudioService : Service() {
 
     private fun buildVoicePlayer(): ExoPlayer {
         val player = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(OkHttpDataSource.Factory(okHttpClient)))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(OkHttpDataSource.Factory(httpCalls)))
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -817,68 +828,98 @@ class AudioService : Service() {
         // resumeAll() can then restart the API request instead of replaying an
         // already-ended track.
         somaUrl = null
-        somaNextTrackCall?.cancel()
+        somaNextTrackQuestion?.cancel()
         val selection = somaPendingSelection ?: ChainedTrackSelection(somaCurrentTrackName)
             .also { somaPendingSelection = it }
         val needsClock = selection.requestId == null
-        val call = okHttpClient.newCall(Request.Builder().url(selection.url(apiBase))
-            .cacheControl(CacheControl.FORCE_NETWORK).build())
-        somaNextTrackCall = call
+        val request = Request.Builder().url(selection.url(apiBase))
+            .cacheControl(CacheControl.FORCE_NETWORK).build()
+        // Both questions can be repeated (the clock is a read; a selection id gets the same
+        // answer again), so a try that stays silent is joined by another in parallel.
+        lateinit var question: StationQuestion<StationAnswer>
+        question = StationQuestion(
+            tries = STATION_TRIES,
+            staggerMs = STATION_STAGGER_MS,
+            later = { delayMs, action -> handler.postDelayed({ action() }, delayMs) },
+            launch = { verdict -> askStation(request, bodyRequired = !needsClock, verdict) },
+        ) { answer ->
+            if (somaNextTrackQuestion !== question) return@StationQuestion
+            somaNextTrackQuestion = null
+            // Station may have been stopped, paused or retuned while the
+            // question was in flight.
+            if (somaNextTrackApiBase != apiBase ||
+                _somaState.value.status != StreamStatus.LOADING
+            ) return@StationQuestion
+            if (answer == null) return@StationQuestion onChainedFetchFailed()
+            if (somaPendingSelection !== selection) return@StationQuestion
+            val status = answer.status
+            val json = answer.json
+            if (needsClock) {
+                if (status in 200..299 && selection.synchronize(
+                        json?.optLong("server_time_ms")?.takeIf { it > 0 }, answer.httpDate
+                    )) fetchNextChainedTrack()
+                else onChainedFetchFailed()
+                return@StationQuestion
+            }
+            // Only an explicit expiry retires a lost selection. A timeout,
+            // 429 or 5xx retries the same id and the same current parameter.
+            if (status == 410) somaPendingSelection = null
+            val path = json?.optString("url")?.takeIf { it.isNotBlank() && it != "null" }
+            val trackUrl = path?.let { resolveChainedTrackUrl(apiBase, it) }
+            if (trackUrl == null) {
+                // A successful empty-pool response selected no file; allow
+                // a later retry to ask again rather than cache emptiness.
+                if (status in 200..299 && json != null) somaPendingSelection = null
+                onChainedFetchFailed()
+            } else {
+                somaPendingSelection = null
+                playChainedTrack(trackUrl, json.optString("name")
+                    .ifBlank { path.orEmpty().substringAfterLast('/') })
+            }
+        }
+        somaNextTrackQuestion = question
+        question.ask()
+    }
+
+    /** What the station said: any HTTP answer counts, a transport failure does not. */
+    private class StationAnswer(val status: Int, val httpDate: String?, val json: JSONObject?)
+
+    /**
+     * One try of a station question. Its verdict arrives on the main thread; returns its cancel.
+     * A body that broke off on the way is a failed try when the body is the answer (a selection);
+     * the clock can still be read from the Date header.
+     */
+    private fun askStation(
+        request: Request,
+        bodyRequired: Boolean,
+        verdict: (StationAnswer?) -> Unit
+    ): () -> Unit {
+        val call = httpCalls.newCall(request)
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                if (call.isCanceled()) return
-                handler.post {
-                    if (somaNextTrackCall !== call) return@post
-                    somaNextTrackCall = null
-                    if (somaNextTrackApiBase == apiBase &&
-                        _somaState.value.status == StreamStatus.LOADING
-                    ) {
-                        onChainedFetchFailed()
-                    }
-                }
+                handler.post { verdict(null) }
             }
 
             override fun onResponse(call: Call, response: Response) {
-                val status = response.code
-                val httpDate = response.header("Date")
-                val json = response.use { resp ->
-                    if (!resp.isSuccessful) null
-                    else runCatching { JSONObject(resp.body.string()) }.getOrNull()
-                }
-                handler.post {
-                    if (somaNextTrackCall !== call) return@post
-                    somaNextTrackCall = null
-                    // Station may have been stopped, paused or retuned while
-                    // the HTTP callback was in flight.
-                    if (somaNextTrackApiBase != apiBase ||
-                        _somaState.value.status != StreamStatus.LOADING
-                    ) return@post
-                    if (somaPendingSelection !== selection) return@post
-                    if (needsClock) {
-                        if (status in 200..299 && selection.synchronize(
-                                json?.optLong("server_time_ms")?.takeIf { it > 0 }, httpDate
-                            )) fetchNextChainedTrack()
-                        else onChainedFetchFailed()
-                        return@post
+                val answer = response.use { resp ->
+                    val status = resp.code
+                    val httpDate = resp.header("Date")
+                    val text = if (!resp.isSuccessful) "" else try {
+                        resp.body.string()
+                    } catch (e: IOException) {
+                        null
                     }
-                    // Only an explicit expiry retires a lost selection. A timeout,
-                    // 429 or 5xx retries the same id and the same current parameter.
-                    if (status == 410) somaPendingSelection = null
-                    val path = json?.optString("url")?.takeIf { it.isNotBlank() && it != "null" }
-                    val trackUrl = path?.let { resolveChainedTrackUrl(apiBase, it) }
-                    if (trackUrl == null) {
-                        // A successful empty-pool response selected no file; allow
-                        // a later retry to ask again rather than cache emptiness.
-                        if (status in 200..299 && json != null) somaPendingSelection = null
-                        onChainedFetchFailed()
-                    } else {
-                        somaPendingSelection = null
-                        playChainedTrack(trackUrl, json.optString("name")
-                            .ifBlank { path.orEmpty().substringAfterLast('/') })
+                    when {
+                        text != null -> StationAnswer(status, httpDate,
+                            runCatching { JSONObject(text) }.getOrNull())
+                        bodyRequired -> null
+                        else -> StationAnswer(status, httpDate, null)
                     }
                 }
+                handler.post { verdict(answer) }
             }
         })
+        return { call.cancel() }
     }
 
     private fun playChainedTrack(url: String, name: String) {
@@ -942,8 +983,8 @@ class AudioService : Service() {
             if (somaNextTrackApiBase != null &&
                 _somaState.value.status == StreamStatus.LOADING
             ) {
-                somaNextTrackCall?.cancel()
-                somaNextTrackCall = null
+                somaNextTrackQuestion?.cancel()
+                somaNextTrackQuestion = null
             }
             somaPlayer.pause()
             _somaState.value = StreamState(StreamStatus.PAUSED)
@@ -1009,9 +1050,9 @@ class AudioService : Service() {
 
     private fun buildPlayer(isAtc: Boolean): ExoPlayer {
         // OkHttpDataSource follows redirects (including cross-protocol ones) and
-        // shares the app's OkHttpClient. d.liveatc.net 302-redirects every stream
+        // shares the app's HTTP clients. d.liveatc.net 302-redirects every stream
         // request to the active Icecast server.
-        val dataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
+        val dataSourceFactory = OkHttpDataSource.Factory(httpCalls)
         // TeeAudioProcessor mirrors the decoded PCM into the spectrum analyzer
         // without touching the audio path (and without RECORD_AUDIO).
         val spectrumProcessor = if (isAtc) atcSpectrumProcessor else somaSpectrumProcessor
@@ -1324,6 +1365,9 @@ class AudioService : Service() {
         // Chained station live link
         private const val VOICE_DUCK_FACTOR = 0.35f
         private const val HEARTBEAT_MS = 5_000L
+        // A station question is asked up to three times in parallel, 2.5 s apart.
+        private const val STATION_TRIES = 3
+        private const val STATION_STAGGER_MS = 2_500L
         // The station's web page asks every 1.4 s; a phone asks less often and hears
         // a line at most two seconds later.
         private const val SAY_POLL_MS = 2_000L

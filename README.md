@@ -69,6 +69,21 @@ always did after short ones; hiss that opens right after a transmission keeps it
 down for about five seconds; a noisy carrier that keeps dropping out can hold it
 down for about two minutes before it is learned.
 
+Version 1.7.4 keeps one connection to Rain Radio. COMSAT opens a fresh connection
+for every request, a rule made for a CDN that a mobile carrier interferes with, and
+the station is asked something every few seconds: the next piece, the file, who is
+listening, what the host said. On a path that loses new connections (seen on a
+phone behind a VPN, where about every second TLS handshake timed out) the station
+took almost three minutes to start, stayed silent for minutes between pieces, and
+the listener kept dropping off its count. The station now gets its own kept
+HTTP/2 connection, probed every 15 seconds, and the two questions that pick a
+piece are asked again in parallel while the first try stays silent; they are safe
+to repeat, because a selection carries an id under which the station gives the
+same answer. On the same phone and path: 5.6 s and 33 s from Play to sound in
+two starts instead of 170 s (the slower one lost a whole round of tries first), a
+piece change within a second, and 11-12 of 12 presence pings a minute reaching
+the station instead of 1-3. Everything else still uses fresh connections.
+
 ## Get on air
 
 1. Download [`COMSAT.apk`](https://github.com/tigrohvost/comsat/releases/latest/download/COMSAT.apk).
@@ -164,8 +179,8 @@ Set the repository secrets `COMSAT_KEYSTORE_BASE64` and
 matching semantic tag:
 
 ```bash
-git tag -a v1.7.3 -m "COMSAT 1.7.3"
-git push origin v1.7.3
+git tag -a v1.7.4 -m "COMSAT 1.7.4"
+git push origin v1.7.4
 ```
 
 The release workflow rejects a tag that does not match the app version. A

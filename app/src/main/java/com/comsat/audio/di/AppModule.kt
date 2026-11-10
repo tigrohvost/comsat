@@ -16,6 +16,7 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
+import javax.inject.Named
 import javax.inject.Singleton
 
 @Module
@@ -24,6 +25,9 @@ object AppModule {
 
     const val USER_AGENT =
         "COMSAT/${BuildConfig.VERSION_NAME} (Android; +https://github.com/tigrohvost/comsat)"
+
+    /** Qualifier of the client that keeps one connection to a track-chained station. */
+    const val STATION_HTTP = "station"
 
     @Provides
     @Singleton
@@ -60,6 +64,31 @@ object AppModule {
                     })
                 }
             }
+            .build()
+
+    /**
+     * A track-chained station (Rain Radio) is asked something every few seconds: the next
+     * file, the file itself, who is listening, what the host said. With a fresh connection
+     * per request, the rule above, each of those is a new TLS handshake. On a path that
+     * loses handshakes (seen on a phone behind a VPN: about every second one) the station
+     * needed minutes to start, stalled again at every track change, and the listener kept
+     * dropping off its count.
+     *
+     * The station is its own small server, not the CDN the rule above is about. So it gets
+     * one kept connection: multiplexed (h2), so that one handshake serves everything, and
+     * probed every 15 seconds, so that a connection that died silently is dropped within
+     * 15 to 30 seconds even while nothing is being read from it (a read in progress still
+     * ends on its own 15 second timeout). The pool forgets the connection a minute after
+     * the station is stopped.
+     */
+    @Provides
+    @Singleton
+    @Named(STATION_HTTP)
+    fun provideStationHttpClient(client: OkHttpClient): OkHttpClient =
+        client.newBuilder()
+            .connectionPool(ConnectionPool(2, 1, TimeUnit.MINUTES))
+            .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
+            .pingInterval(15, TimeUnit.SECONDS)
             .build()
 
     @Provides
